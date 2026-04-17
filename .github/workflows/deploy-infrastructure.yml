@@ -15,34 +15,53 @@ on:
 
 jobs:
   deploy-bicep:
-    name: Deploy Bicep (${{ inputs.environment || (github.ref_name == 'main' && 'production') || 'staging' }})
+    name: Deploy Bicep
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment || (github.ref_name == 'main' && 'production') || 'staging' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure Login
+      - name: Determine environment
+        id: env
+        run: |
+          if [ -n "${{ inputs.environment }}" ]; then
+            ENV="${{ inputs.environment }}"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            ENV="production"
+          else
+            ENV="staging"
+          fi
+          echo "name=$ENV" >> $GITHUB_OUTPUT
+
+          # Resource group per environment
+          if [ "$ENV" = "production" ]; then
+            echo "rg=rg-afrixplore-production-southafricanorth" >> $GITHUB_OUTPUT
+          else
+            echo "rg=afrixplore-rg" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Azure Login (staging / dev)
+        if: steps.env.outputs.name != 'production'
         uses: azure/login@v2
         with:
-          creds: ${{ secrets[format('AZURE_CREDENTIALS_{0}', upper(inputs.environment || (github.ref_name == 'main' && 'production') || 'staging'))] }}
+          creds: ${{ secrets.AZURE_CREDENTIALS_STAGING }}
 
-      - name: Set environment variables
-        run: |
-          ENV="${{ inputs.environment || (github.ref_name == 'main' && 'production') || 'staging' }}"
-          echo "DEPLOY_ENV=$ENV" >> $GITHUB_ENV
-          echo "RG=rg-afrixplore-${ENV}-southafricanorth" >> $GITHUB_ENV
+      - name: Azure Login (production)
+        if: steps.env.outputs.name == 'production'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
 
       - name: Bicep What-If
         run: |
           az deployment group what-if \
-            --resource-group ${{ env.RG }} \
+            --resource-group "${{ steps.env.outputs.rg }}" \
             --template-file infrastructure/bicep/main.bicep \
-            --parameters infrastructure/bicep/environments/${{ env.DEPLOY_ENV }}.bicepparam
+            --parameters "infrastructure/bicep/environments/${{ steps.env.outputs.name }}.bicepparam"
 
       - name: Deploy Bicep
         run: |
           az deployment group create \
-            --resource-group ${{ env.RG }} \
+            --resource-group "${{ steps.env.outputs.rg }}" \
             --template-file infrastructure/bicep/main.bicep \
-            --parameters infrastructure/bicep/environments/${{ env.DEPLOY_ENV }}.bicepparam \
+            --parameters "infrastructure/bicep/environments/${{ steps.env.outputs.name }}.bicepparam" \
             --name "deploy-$(date +%Y%m%d-%H%M%S)"
