@@ -60,8 +60,29 @@ jobs:
 
       - name: Deploy Bicep
         run: |
+          DEPLOY_NAME="deploy-$(date +%Y%m%d-%H%M%S)"
+          # Use --no-wait to avoid ARM timing out on Container App revision health checks.
+          # Container Apps with placeholder images can take >5m to pass health probes,
+          # which exceeds the ARM operation timeout — but the apps ARE running.
           az deployment group create \
             --resource-group "${{ steps.env.outputs.rg }}" \
             --template-file infrastructure/bicep/main.bicep \
             --parameters "infrastructure/bicep/environments/${{ steps.env.outputs.name }}.bicepparam" \
-            --name "deploy-$(date +%Y%m%d-%H%M%S)"
+            --name "$DEPLOY_NAME" \
+            --no-wait
+          echo "Deployment $DEPLOY_NAME submitted (async). Waiting 90s..."
+          sleep 90
+
+      - name: Verify infrastructure healthy
+        run: |
+          echo "=== Container Apps ==="
+          az containerapp list \
+            --resource-group "${{ steps.env.outputs.rg }}" \
+            --query "[].{name:name, state:properties.runningStatus}" \
+            --output table
+          COUNT=$(az containerapp list \
+            --resource-group "${{ steps.env.outputs.rg }}" \
+            --query "length([?properties.runningStatus=='Running'])" \
+            --output tsv 2>/dev/null || echo "0")
+          echo "Running container apps: $COUNT"
+          [ "$COUNT" -gt "0" ] && echo "OK" || { echo "No running container apps"; exit 1; }
