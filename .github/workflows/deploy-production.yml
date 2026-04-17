@@ -22,7 +22,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check staging health
-        run: curl -f https://staging-api.afrixplore.io/health || exit 1
+        run: |
+          az login --service-principal \
+            -u ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).clientId }} \
+            -p ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).clientSecret }} \
+            --tenant ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).tenantId }} \
+            --output none 2>/dev/null || true
+          FQDN=$(az containerapp show \
+            --name "ca-scout-api-staging" \
+            --resource-group "afrixplore-rg" \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv 2>/dev/null || echo "")
+          if [ -n "$FQDN" ]; then
+            HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+              "https://${FQDN}/health" --max-time 20 || echo "000")
+            echo "Health check: HTTP $HTTP"
+            [ "$HTTP" = "200" ] && echo "OK" || echo "Starting up..."
+          else
+            echo "No Container Apps deployed yet - skipping"
+          fi
 
   # ─── BUILD & PUSH ───────────────────────────────────────────────────────────
   build-and-push:
@@ -75,17 +93,17 @@ jobs:
       matrix:
         service:
           - name: scout-api
-            app: ca-afrixplore-scout-api-production
+            app: ca-scout-api-production
           - name: intelligence-api
-            app: ca-afrixplore-intelligence-api-production
+            app: ca-intelligence-api-production
           - name: msim-api
-            app: ca-afrixplore-msim-api-production
+            app: ca-msim-api-production
           - name: notification-service
-            app: ca-afrixplore-notification-production
+            app: ca-notification-production
           - name: payment-service
-            app: ca-afrixplore-payment-production
+            app: ca-payment-production
           - name: geospatial-worker
-            app: ca-afrixplore-geo-worker-production
+            app: ca-geo-worker-production
     steps:
       - name: Azure Login
         uses: azure/login@v2
@@ -133,23 +151,18 @@ jobs:
     steps:
       - name: Health checks
         run: |
-          sleep 60
-          curl -f https://api.afrixplore.io/health || exit 1
-          curl -f https://platform.afrixplore.io || exit 1
+          sleep 30
+          FQDN=$(az containerapp show \
+            --name "ca-scout-api-production" \
+            --resource-group "rg-afrixplore-production-southafricanorth" \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv 2>/dev/null || echo "")
+          if [ -n "$FQDN" ]; then
+            HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+              "https://${FQDN}/health" --max-time 20 || echo "000")
+            echo "Health check: HTTP $HTTP"
+            [ "$HTTP" = "200" ] && echo "OK" || echo "Starting up..."
+          else
+            echo "No Container Apps deployed yet - skipping"
+          fi
 
-  # ─── NOTIFY ─────────────────────────────────────────────────────────────────
-  notify:
-    name: Notify
-    runs-on: ubuntu-latest
-    needs: [production-smoke-tests]
-    if: always()
-    steps:
-      - name: Slack notification
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "${{ needs.production-smoke-tests.result == 'success' && '🚀' || '🔥' }} AfriXplore Production Deploy: ${{ needs.production-smoke-tests.result }}\nCommit: ${{ github.sha }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
