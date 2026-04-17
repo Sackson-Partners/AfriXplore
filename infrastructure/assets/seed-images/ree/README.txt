@@ -1,0 +1,3 @@
+Add at least 5 JPG images of ree ore/minerals here.
+Minimum resolution: 256x256px
+Naming: sample_01.jpg, sample_02.jpg, ...

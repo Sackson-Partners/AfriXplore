@@ -1,0 +1,81 @@
+<policies>
+  <inbound>
+    <set-variable name="requestId" value="@(Guid.NewGuid().ToString())" />
+    <set-header name="X-AIN-Request-ID" exists-action="override">
+      <value>@((string)context.Variables["requestId"])</value>
+    </set-header>
+    <set-header name="X-Environment" exists-action="override">
+      <value>{{environment}}</value>
+    </set-header>
+    <cors allow-credentials="true">
+      <allowed-origins>
+        <origin>https://platform.afrixplore.io</origin>
+        <origin>https://admin.afrixplore.io</origin>
+        <origin>https://staging.platform.afrixplore.io</origin>
+        <origin>http://localhost:3005</origin>
+        <origin>http://localhost:3006</origin>
+      </allowed-origins>
+      <allowed-methods>
+        <method>GET</method>
+        <method>POST</method>
+        <method>PUT</method>
+        <method>PATCH</method>
+        <method>DELETE</method>
+        <method>OPTIONS</method>
+      </allowed-methods>
+      <allowed-headers>
+        <header>Authorization</header>
+        <header>Content-Type</header>
+        <header>X-AIN-Request-ID</header>
+        <header>X-Scout-App-Version</header>
+      </allowed-headers>
+      <expose-headers>
+        <header>X-AIN-Request-ID</header>
+        <header>X-RateLimit-Remaining</header>
+        <header>X-RateLimit-Reset</header>
+      </expose-headers>
+    </cors>
+    <choose>
+      <when condition="@(context.Request.Method == &quot;OPTIONS&quot;)">
+        <return-response>
+          <set-status code="204" />
+        </return-response>
+      </when>
+    </choose>
+  </inbound>
+  <backend>
+    <forward-request />
+  </backend>
+  <outbound>
+    <set-header name="X-Content-Type-Options" exists-action="override">
+      <value>nosniff</value>
+    </set-header>
+    <set-header name="X-Frame-Options" exists-action="override">
+      <value>DENY</value>
+    </set-header>
+    <set-header name="Strict-Transport-Security" exists-action="override">
+      <value>max-age=31536000; includeSubDomains</value>
+    </set-header>
+    <set-header name="X-AIN-Request-ID" exists-action="override">
+      <value>@((string)context.Variables["requestId"])</value>
+    </set-header>
+  </outbound>
+  <on-error>
+    <set-header name="X-AIN-Request-ID" exists-action="override">
+      <value>@((string)context.Variables["requestId"])</value>
+    </set-header>
+    <set-body>@{
+      return new JObject(
+        new JProperty("type", "https://afrixplore.io/errors/internal"),
+        new JProperty("title", context.LastError.Message),
+        new JProperty("status", context.Response.StatusCode),
+        new JProperty("detail", context.LastError.Reason),
+        new JProperty("instance", context.Request.Url.Path),
+        new JProperty("requestId", context.Variables["requestId"])
+      ).ToString();
+    }</set-body>
+    <set-header name="Content-Type" exists-action="override">
+      <value>application/problem+json</value>
+    </set-header>
+  </on-error>
+</policies>

@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "AfriXplore Scout",
+    "slug": "afrixplore-scout",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "io.afrixplore.scout",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0f1e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "io.afrixplore.scout",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Capture mineral samples for identification",
+        "NSLocationWhenInUseUsageDescription": "Record GPS location of mineral findings",
+        "NSMicrophoneUsageDescription": "Record voice notes about mineral findings",
+        "NSPhotoLibraryUsageDescription": "Select photos of mineral samples"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0f1e"
+      },
+      "package": "io.afrixplore.scout",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      "expo-location",
+      "expo-secure-store",
+      "expo-notifications",
+      ["expo-updates", { "username": "sackson-partners" }]
+    ],
+    "extra": {
+      "eas": { "projectId": "your-eas-project-id" },
+      "apiUrl": "https://api.afrixplore.io",
+      "entraScoutClientId": "",
+      "entraScoutTenantId": ""
+    }
+  }
+}

@@ -1,0 +1,59 @@
+<policies>
+  <inbound>
+    <base />
+    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Valid subscriber JWT required" require-expiration-time="true" require-scheme="Bearer">
+      <openid-config url="https://login.microsoftonline.com/{{entra-platform-tenant-id}}/v2.0/.well-known/openid-configuration" />
+      <audiences>
+        <audience>{{entra-platform-client-id}}</audience>
+      </audiences>
+      <required-claims>
+        <claim name="role" match="any">
+          <value>subscriber</value>
+          <value>admin</value>
+          <value>geologist</value>
+        </claim>
+      </required-claims>
+    </validate-jwt>
+    <set-variable name="subscriberId" value="@(context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;,&quot;&quot;).AsJwt()?.Subject)" />
+    <set-variable name="subscriberTier" value="@(context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;,&quot;&quot;).AsJwt()?.Claims.GetValueOrDefault(&quot;tier&quot;,&quot;starter&quot;))" />
+    <set-variable name="licensedTerritories" value="@(context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;,&quot;&quot;).AsJwt()?.Claims.GetValueOrDefault(&quot;licensed_territories&quot;,&quot;&quot;))" />
+    <rate-limit-by-key calls="100" renewal-period="60" counter-key="@((string)context.Variables[&quot;subscriberId&quot;])" />
+    <choose>
+      <when condition="@(context.Request.Url.Path.Contains(&quot;/stream&quot;) &amp;&amp; (string)context.Variables[&quot;subscriberTier&quot;] == &quot;starter&quot;)">
+        <return-response>
+          <set-status code="403" reason="Forbidden" />
+          <set-body>@{
+            return new JObject(
+              new JProperty("type", "https://afrixplore.io/errors/upgrade-required"),
+              new JProperty("title", "Professional Tier Required"),
+              new JProperty("status", 403),
+              new JProperty("detail", "Real-time data streams require Professional tier or above."),
+              new JProperty("upgrade_url", "https://platform.afrixplore.io/upgrade")
+            ).ToString();
+          }</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="X-Subscriber-ID" exists-action="override">
+      <value>@((string)context.Variables["subscriberId"])</value>
+    </set-header>
+    <set-header name="X-Subscriber-Tier" exists-action="override">
+      <value>@((string)context.Variables["subscriberTier"])</value>
+    </set-header>
+    <set-header name="X-Licensed-Territories" exists-action="override">
+      <value>@((string)context.Variables["licensedTerritories"])</value>
+    </set-header>
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+    <set-header name="X-Subscriber-Tier" exists-action="override">
+      <value>@((string)context.Variables["subscriberTier"])</value>
+    </set-header>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

@@ -1,0 +1,373 @@
+name: ML Model Deploy — AfriXplore
+
+on:
+  schedule:
+    - cron: '0 2 1 * *'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy even without accuracy improvement'
+        required: false
+        default: 'false'
+
+jobs:
+  # ─── STAGE 1: RUN ML PIPELINE ────────────────────────────────────────────
+  run-ml-pipeline:
+    name: Run ML Retraining Pipeline
+    runs-on: ubuntu-latest
+    environment: production
+
+    outputs:
+      model_version:      ${{ steps.check-model.outputs.model_version }}
+      model_deployed:     ${{ steps.check-model.outputs.model_deployed }}
+      previous_accuracy:  ${{ steps.check-model.outputs.previous_accuracy }}
+      new_accuracy:       ${{ steps.check-model.outputs.new_accuracy }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r services/geospatial-worker/requirements.txt
+          pip install azure-ai-ml azure-storage-blob azure-identity
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+
+      - name: Fetch secrets from Key Vault
+        id: fetch-secrets
+        run: |
+          fetch_secret() {
+            az keyvault secret show \
+              --vault-name kv-afrixplore-production \
+              --name "$1" \
+              --query value -o tsv 2>/dev/null || echo ""
+          }
+
+          CV_TRAINING_KEY=$(fetch_secret "custom-vision-training-key")
+          CV_PREDICTION_KEY=$(fetch_secret "custom-vision-prediction-key")
+          DB_CONN=$(fetch_secret "postgresql-connection-string")
+          STORAGE_CONN=$(fetch_secret "storage-connection-string")
+
+          echo "::add-mask::$CV_TRAINING_KEY"
+          echo "::add-mask::$CV_PREDICTION_KEY"
+          echo "::add-mask::$DB_CONN"
+          echo "::add-mask::$STORAGE_CONN"
+
+          echo "CUSTOM_VISION_TRAINING_KEY=$CV_TRAINING_KEY" >> $GITHUB_ENV
+          echo "CUSTOM_VISION_PREDICTION_KEY=$CV_PREDICTION_KEY" >> $GITHUB_ENV
+          echo "DATABASE_URL=$DB_CONN" >> $GITHUB_ENV
+          echo "AZURE_STORAGE_CONNECTION_STRING=$STORAGE_CONN" >> $GITHUB_ENV
+
+      - name: Run ML retraining pipeline
+        id: run-pipeline
+        run: |
+          cd services/geospatial-worker
+          python src/ml_pipeline.py 2>&1 | tee /tmp/pipeline_output.log
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        env:
+          CUSTOM_VISION_PROJECT_ID: ${{ secrets.CUSTOM_VISION_PROJECT_ID }}
+          CUSTOM_VISION_PREDICTION_ENDPOINT: ${{ secrets.CUSTOM_VISION_PREDICTION_ENDPOINT }}
+          CUSTOM_VISION_TRAINING_ENDPOINT: ${{ secrets.CUSTOM_VISION_TRAINING_ENDPOINT }}
+          CUSTOM_VISION_PUBLISHED_NAME: mineral-id-prod
+          FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
+
+      - name: Read pipeline outputs
+        id: check-model
+        run: |
+          VERSION_FILE="/tmp/ml_pipeline_result.json"
+
+          if [ -f "$VERSION_FILE" ]; then
+            MODEL_VERSION=$(cat $VERSION_FILE | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('version','unknown'))")
+            MODEL_DEPLOYED=$(cat $VERSION_FILE | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(str(d.get('deployed',False)).lower())")
+            PREV_ACC=$(cat $VERSION_FILE | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('previous_accuracy',0))")
+            NEW_ACC=$(cat $VERSION_FILE | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('new_accuracy',0))")
+          else
+            az storage blob download \
+              --account-name stainprodsa \
+              --container-name ml-models \
+              --name mineral-id/current_version.json \
+              --file /tmp/version.json \
+              --auth-mode login 2>/dev/null || echo '{}' > /tmp/version.json
+
+            MODEL_VERSION=$(cat /tmp/version.json | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('version','unknown'))" 2>/dev/null \
+              || echo "mineral-id-$(date +%Y%m)")
+            MODEL_DEPLOYED="false"
+            PREV_ACC="0"
+            NEW_ACC="0"
+          fi
+
+          echo "model_version=$MODEL_VERSION"    >> $GITHUB_OUTPUT
+          echo "model_deployed=$MODEL_DEPLOYED"  >> $GITHUB_OUTPUT
+          echo "previous_accuracy=$PREV_ACC"     >> $GITHUB_OUTPUT
+          echo "new_accuracy=$NEW_ACC"           >> $GITHUB_OUTPUT
+
+          echo "📊 Model version : $MODEL_VERSION"
+          echo "📊 Deployed      : $MODEL_DEPLOYED"
+          echo "📊 Prev accuracy : $PREV_ACC"
+          echo "📊 New accuracy  : $NEW_ACC"
+
+      - name: Upload pipeline log as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ml-pipeline-log
+          path: /tmp/pipeline_output.log
+          retention-days: 30
+
+  # ─── STAGE 2: UPDATE INFERENCE SERVICE ───────────────────────────────────
+  update-inference-service:
+    name: Update Inference Container App
+    runs-on: ubuntu-latest
+    needs: [run-ml-pipeline]
+    if: needs.run-ml-pipeline.outputs.model_deployed == 'true'
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+
+      - name: Update inference service env var
+        run: |
+          MODEL_VERSION="${{ needs.run-ml-pipeline.outputs.model_version }}"
+          echo "Updating inference service to model: $MODEL_VERSION"
+
+          az containerapp update \
+            --name ca-afrixplore-ai-inference-production \
+            --resource-group rg-afrixplore-production-southafricanorth \
+            --set-env-vars "CUSTOM_VISION_PUBLISHED_NAME=${MODEL_VERSION}" \
+            --output none
+
+          echo "✅ Inference service updated"
+
+      - name: Verify inference service health
+        run: |
+          sleep 30
+          FQDN=$(az containerapp show \
+            --name ca-afrixplore-ai-inference-production \
+            --resource-group rg-afrixplore-production-southafricanorth \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "https://${FQDN}/health" --max-time 10 || echo "000")
+
+          if [ "$HTTP" != "200" ]; then
+            echo "❌ Inference health check failed: HTTP $HTTP"
+            exit 1
+          fi
+          echo "✅ Inference service healthy (HTTP $HTTP)"
+
+  # ─── STAGE 3: MOBILE OTA UPDATE ──────────────────────────────────────────
+  trigger-mobile-ota:
+    name: Trigger Mobile App OTA Update
+    runs-on: ubuntu-latest
+    needs: [run-ml-pipeline, update-inference-service]
+    if: needs.run-ml-pipeline.outputs.model_deployed == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node + EAS CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm install -g eas-cli@latest
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+
+      - name: Download new TFLite model from Blob
+        run: |
+          mkdir -p apps/scout-mobile/assets/models
+
+          az storage blob download \
+            --account-name stainprodsa \
+            --container-name ml-models \
+            --name mineral-id/latest/mineral_id.tflite \
+            --file apps/scout-mobile/assets/models/mineral_id.tflite \
+            --auth-mode login
+
+          SIZE=$(wc -c < apps/scout-mobile/assets/models/mineral_id.tflite)
+          echo "✅ TFLite model downloaded: ${SIZE} bytes"
+
+          MAGIC=$(xxd -l 4 apps/scout-mobile/assets/models/mineral_id.tflite | awk '{print $2$3}')
+          echo "TFLite magic bytes: $MAGIC"
+
+      - name: Write model version to assets
+        run: |
+          MODEL_VERSION="${{ needs.run-ml-pipeline.outputs.model_version }}"
+          cat > apps/scout-mobile/assets/models/model_version.json << EOF
+          {
+            "version": "${MODEL_VERSION}",
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "accuracy": ${{ needs.run-ml-pipeline.outputs.new_accuracy }}
+          }
+          EOF
+          echo "✅ Model version file written"
+
+      - name: Install scout-mobile dependencies
+        run: |
+          cd apps/scout-mobile
+          npm install --legacy-peer-deps
+
+      - name: Publish EAS OTA update
+        run: |
+          cd apps/scout-mobile
+          MODEL_VERSION="${{ needs.run-ml-pipeline.outputs.model_version }}"
+
+          eas update \
+            --branch production \
+            --message "ML model update: ${MODEL_VERSION} (acc: ${{ needs.run-ml-pipeline.outputs.new_accuracy }})" \
+            --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Get OTA update ID
+        id: ota-url
+        run: |
+          cd apps/scout-mobile
+          UPDATE_INFO=$(eas update:list \
+            --branch production \
+            --limit 1 \
+            --json \
+            --non-interactive 2>/dev/null || echo "[]")
+          UPDATE_ID=$(echo $UPDATE_INFO | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(d[0].get('id','unknown') if d else 'unknown')" \
+            2>/dev/null || echo "unknown")
+          echo "update_id=$UPDATE_ID" >> $GITHUB_OUTPUT
+          echo "✅ OTA Update ID: $UPDATE_ID"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+  # ─── STAGE 4: NOTIFY ─────────────────────────────────────────────────────
+  notify-completion:
+    name: Notify Pipeline Completion
+    runs-on: ubuntu-latest
+    needs: [run-ml-pipeline, update-inference-service, trigger-mobile-ota]
+    if: always()
+
+    steps:
+      - name: Determine overall status
+        id: status
+        run: |
+          ML_RESULT="${{ needs.run-ml-pipeline.result }}"
+          INF_RESULT="${{ needs.update-inference-service.result }}"
+          OTA_RESULT="${{ needs.trigger-mobile-ota.result }}"
+          DEPLOYED="${{ needs.run-ml-pipeline.outputs.model_deployed }}"
+
+          if [ "$ML_RESULT" = "success" ] && [ "$DEPLOYED" = "true" ]; then
+            if [ "$INF_RESULT" = "success" ] && [ "$OTA_RESULT" = "success" ]; then
+              echo "emoji=✅"  >> $GITHUB_OUTPUT
+              echo "status=Full deploy success" >> $GITHUB_OUTPUT
+              echo "color=good" >> $GITHUB_OUTPUT
+            else
+              echo "emoji=⚠️"  >> $GITHUB_OUTPUT
+              echo "status=Partial deploy — check logs" >> $GITHUB_OUTPUT
+              echo "color=warning" >> $GITHUB_OUTPUT
+            fi
+          elif [ "$ML_RESULT" = "success" ] && [ "$DEPLOYED" = "false" ]; then
+            echo "emoji=ℹ️"  >> $GITHUB_OUTPUT
+            echo "status=No improvement — model not deployed" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
+          else
+            echo "emoji=❌"  >> $GITHUB_OUTPUT
+            echo "status=Pipeline failed" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "${{ steps.status.outputs.emoji }} AfriXplore ML Pipeline"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Status*\n${{ steps.status.outputs.status }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Model Version*\n${{ needs.run-ml-pipeline.outputs.model_version }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Previous Accuracy*\n${{ needs.run-ml-pipeline.outputs.previous_accuracy }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*New Accuracy*\n${{ needs.run-ml-pipeline.outputs.new_accuracy }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Deployed*\n${{ needs.run-ml-pipeline.outputs.model_deployed }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered By*\n${{ github.actor }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Run"
+                          },
+                          "url": "https://github.com/Sackson-Partners/AfriXplore/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create GitHub deployment record
+        uses: actions/github-script@v7
+        if: needs.run-ml-pipeline.outputs.model_deployed == 'true'
+        with:
+          script: |
+            await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production-ml',
+              description: `ML model: ${{ needs.run-ml-pipeline.outputs.model_version }}`,
+              auto_merge: false,
+              required_contexts: [],
+            });
