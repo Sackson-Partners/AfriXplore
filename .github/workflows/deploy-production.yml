@@ -3,6 +3,11 @@ name: Deploy Production — AfriXplore
 on:
   push:
     branches: [main]
+    paths:
+      - 'services/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'infrastructure/bicep/**'
   workflow_dispatch:
     inputs:
       force_deploy:
@@ -20,14 +25,15 @@ jobs:
   require-staging:
     name: Verify Staging Health
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+
       - name: Check staging health
         run: |
-          az login --service-principal \
-            -u ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).clientId }} \
-            -p ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).clientSecret }} \
-            --tenant ${{ fromJson(secrets.AZURE_CREDENTIALS_PRODUCTION).tenantId }} \
-            --output none 2>/dev/null || true
           FQDN=$(az containerapp show \
             --name "ca-scout-api-staging" \
             --resource-group "afrixplore-rg" \
@@ -149,6 +155,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [deploy-container-apps, deploy-vercel-production]
     steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+
       - name: Health checks
         run: |
           sleep 30
@@ -165,4 +176,3 @@ jobs:
           else
             echo "No Container Apps deployed yet - skipping"
           fi
-
