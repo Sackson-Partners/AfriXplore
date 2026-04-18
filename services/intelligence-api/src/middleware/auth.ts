@@ -26,7 +26,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     audience: process.env.ENTRA_CLIENT_ID,
     issuer: `https://login.microsoftonline.com/${process.env.ENTRA_TENANT_ID}/v2.0`,
     algorithms: ['RS256'],
-  }, (err, decoded) => {
+  }, (err: jwt.VerifyErrors | null, decoded: string | jwt.JwtPayload | undefined) => {
     if (err) return res.status(401).json({ type: 'https://afrixplore.io/errors/invalid-token', status: 401, detail: err.message });
     (req as any).user = decoded;
     (req as any).userId = (decoded as any).sub;
