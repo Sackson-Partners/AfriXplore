@@ -62,3 +62,5 @@ router.post('/photo', upload.single('file'), async (req: Request, res: Response)
 });
 
 export { router as uploadRouter };
+
+export default router;

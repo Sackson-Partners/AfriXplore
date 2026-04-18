@@ -78,3 +78,5 @@ router.patch('/me', async (req: Request, res: Response) => {
 });
 
 export { router as scoutRouter };
+
+export default router;

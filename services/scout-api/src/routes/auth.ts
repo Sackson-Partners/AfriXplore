@@ -4,7 +4,7 @@ import {
   initiatePhoneOTP,
   challengePhoneOTP,
   verifyPhoneOTP,
-} from '@afrixplore/auth';
+} from '../auth/entraOtp';
 import { db } from '../db/client';
 
 const router = Router();
@@ -205,3 +205,4 @@ router.post('/token/refresh', async (req: Request, res: Response) => {
 });
 
 export { router as authRouter };
+export default router;
