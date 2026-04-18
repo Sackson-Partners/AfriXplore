@@ -1,6 +1,6 @@
 -- AfriXplore Mineral Systems (Geological Context)
 
-CREATE TABLE mineral_systems (
+CREATE TABLE IF NOT EXISTS mineral_systems (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
   name TEXT NOT NULL,
@@ -24,5 +24,5 @@ CREATE TABLE mineral_systems (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_mineral_systems_boundary ON mineral_systems USING GIST(boundary);
-CREATE INDEX idx_mineral_systems_type ON mineral_systems(type);
+CREATE INDEX IF NOT EXISTS idx_mineral_systems_boundary ON mineral_systems USING GIST(boundary);
+CREATE INDEX IF NOT EXISTS idx_mineral_systems_type ON mineral_systems(type);

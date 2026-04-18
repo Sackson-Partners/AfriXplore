@@ -11,7 +11,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [continuationToken, setContinuationToken] = useState('');
 
-  const API_URL = 'https://api.afrixplore.io';
+  const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://api.afrixplore.io';
 
   const sendOTP = async () => {
     setLoading(true);

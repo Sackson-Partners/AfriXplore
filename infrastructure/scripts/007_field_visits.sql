@@ -1,6 +1,6 @@
 -- AfriXplore Field Geologist Visits
 
-CREATE TABLE field_geologists (
+CREATE TABLE IF NOT EXISTS field_geologists (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   entra_object_id TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE field_geologists (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE field_visits (
+CREATE TABLE IF NOT EXISTS field_visits (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
   -- Assignment
@@ -45,9 +45,12 @@ CREATE TABLE field_visits (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE anomaly_clusters ADD COLUMN assigned_geologist_id UUID REFERENCES field_geologists(id);
+DO $$ BEGIN
+  ALTER TABLE anomaly_clusters ADD COLUMN assigned_geologist_id UUID REFERENCES field_geologists(id);
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
-CREATE INDEX idx_field_visits_cluster ON field_visits(cluster_id);
-CREATE INDEX idx_field_visits_geologist ON field_visits(geologist_id);
-CREATE INDEX idx_field_visits_scheduled ON field_visits(scheduled_date);
-CREATE INDEX idx_geologists_location ON field_geologists USING GIST(current_location);
+CREATE INDEX IF NOT EXISTS idx_field_visits_cluster ON field_visits(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_field_visits_geologist ON field_visits(geologist_id);
+CREATE INDEX IF NOT EXISTS idx_field_visits_scheduled ON field_visits(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_geologists_location ON field_geologists USING GIST(current_location);

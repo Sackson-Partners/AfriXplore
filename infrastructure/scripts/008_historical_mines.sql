@@ -1,6 +1,6 @@
 -- AfriXplore Historical Mines Reference Data
 
-CREATE TABLE historical_mines (
+CREATE TABLE IF NOT EXISTS historical_mines (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
   name TEXT NOT NULL,
@@ -33,8 +33,8 @@ CREATE TABLE historical_mines (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_historical_mines_location ON historical_mines USING GIST(location);
-CREATE INDEX idx_historical_mines_country ON historical_mines(country);
-CREATE INDEX idx_historical_mines_commodity ON historical_mines(primary_commodity);
-CREATE INDEX idx_historical_mines_name_fts ON historical_mines
+CREATE INDEX IF NOT EXISTS idx_historical_mines_location ON historical_mines USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_historical_mines_country ON historical_mines(country);
+CREATE INDEX IF NOT EXISTS idx_historical_mines_commodity ON historical_mines(primary_commodity);
+CREATE INDEX IF NOT EXISTS idx_historical_mines_name_fts ON historical_mines
   USING GIN(to_tsvector('english', name || ' ' || COALESCE(country, '')));

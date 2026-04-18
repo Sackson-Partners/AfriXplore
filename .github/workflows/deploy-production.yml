@@ -16,9 +16,9 @@ on:
         default: 'false'
 
 env:
-  REGISTRY: craafrixxploreproduction.azurecr.io
-  RESOURCE_GROUP: rg-afrixplore-production-southafricanorth
-  ENVIRONMENT: production
+  REGISTRY: crafrixplorestaging.azurecr.io
+  RESOURCE_GROUP: afrixplore-rg
+  ENVIRONMENT: staging
 
 jobs:
   # ─── REQUIRE STAGING GREEN ──────────────────────────────────────────────────
@@ -30,7 +30,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Check staging health
         run: |
@@ -50,7 +50,7 @@ jobs:
 
   # ─── BUILD & PUSH ───────────────────────────────────────────────────────────
   build-and-push:
-    name: Build & Push Production Images
+    name: Build & Push Images
     runs-on: ubuntu-latest
     needs: [require-staging]
     strategy:
@@ -68,10 +68,10 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Login to ACR
-        run: az acr login --name craafrixxploreproduction
+        run: az acr login --name crafrixplorestaging
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,7 +91,7 @@ jobs:
 
   # ─── DEPLOY CONTAINER APPS ──────────────────────────────────────────────────
   deploy-container-apps:
-    name: Blue/Green Deploy Container Apps
+    name: Deploy Container Apps
     runs-on: ubuntu-latest
     needs: [build-and-push]
     strategy:
@@ -99,22 +99,22 @@ jobs:
       matrix:
         service:
           - name: scout-api
-            app: ca-scout-api-production
+            app: ca-scout-api-staging
           - name: intelligence-api
-            app: ca-intelligence-api-production
+            app: ca-intelligence-api-staging
           - name: msim-api
-            app: ca-msim-api-production
+            app: ca-msim-api-staging
           - name: notification-service
-            app: ca-notification-production
+            app: ca-notification-staging
           - name: payment-service
-            app: ca-payment-production
+            app: ca-payment-staging
           - name: geospatial-worker
-            app: ca-geo-worker-production
+            app: ca-geo-worker-staging
     steps:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy ${{ matrix.service.name }}
         run: |
@@ -123,7 +123,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.REGISTRY }}/${{ matrix.service.name }}:${{ github.sha }}
 
-  # ─── DEPLOY TO VERCEL PRODUCTION ────────────────────────────────────────────
+  # ─── DEPLOY TO VERCEL ───────────────────────────────────────────────────────
   deploy-vercel-production:
     name: Deploy Vercel Production
     runs-on: ubuntu-latest
@@ -149,30 +149,35 @@ jobs:
           vercel-args: '--prod'
           working-directory: apps/admin-web
 
-  # ─── PRODUCTION SMOKE TESTS ─────────────────────────────────────────────────
+  # ─── SMOKE TESTS ────────────────────────────────────────────────────────────
   production-smoke-tests:
-    name: Production Smoke Tests
+    name: Smoke Tests
     runs-on: ubuntu-latest
     needs: [deploy-container-apps, deploy-vercel-production]
+    if: always()
     steps:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Health checks
         run: |
           sleep 30
-          FQDN=$(az containerapp show \
-            --name "ca-scout-api-production" \
-            --resource-group "rg-afrixplore-production-southafricanorth" \
-            --query "properties.configuration.ingress.fqdn" \
-            -o tsv 2>/dev/null || echo "")
-          if [ -n "$FQDN" ]; then
-            HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
-              "https://${FQDN}/health" --max-time 20 || echo "000")
-            echo "Health check: HTTP $HTTP"
-            [ "$HTTP" = "200" ] && echo "OK" || echo "Starting up..."
-          else
-            echo "No Container Apps deployed yet - skipping"
-          fi
+          FAILED=0
+          for APP in ca-scout-api-staging ca-intelligence-api-staging ca-msim-api-staging ca-payment-staging; do
+            FQDN=$(az containerapp show \
+              --name "$APP" \
+              --resource-group "afrixplore-rg" \
+              --query "properties.configuration.ingress.fqdn" \
+              -o tsv 2>/dev/null || echo "")
+            if [ -n "$FQDN" ]; then
+              HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+                "https://${FQDN}/health" --max-time 20 || echo "000")
+              echo "$APP → HTTP $HTTP"
+              [ "$HTTP" = "200" ] || FAILED=$((FAILED+1))
+            else
+              echo "$APP → no FQDN (skipping)"
+            fi
+          done
+          exit $FAILED

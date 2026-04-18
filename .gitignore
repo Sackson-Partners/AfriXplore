@@ -50,3 +50,9 @@ venv/
 
 # Vercel
 .vercel/
+
+# Next.js generated files
+next-env.d.ts
+
+# npm lockfile (using pnpm)
+package-lock.json
