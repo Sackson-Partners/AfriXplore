@@ -117,12 +117,30 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Set Container App secrets for ${{ matrix.service.app }}
+        run: |
+          az containerapp secret set \
+            --name ${{ matrix.service.app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --secrets \
+              "database-url=${{ secrets.DATABASE_URL }}" \
+              "service-bus-conn=${{ secrets.SERVICE_BUS_CONNECTION_STRING }}" \
+              "signalr-conn=${{ secrets.SIGNALR_CONNECTION_STRING }}" \
+              "appinsights-conn=${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
+              "storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+
       - name: Deploy ${{ matrix.service.name }}
         run: |
           az containerapp update \
             --name ${{ matrix.service.app }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.REGISTRY }}/${{ matrix.service.name }}:${{ github.sha }}
+            --image ${{ env.REGISTRY }}/${{ matrix.service.name }}:${{ github.sha }} \
+            --set-env-vars \
+              "DATABASE_URL=secretref:database-url" \
+              "SERVICE_BUS_CONNECTION_STRING=secretref:service-bus-conn" \
+              "AZURE_SIGNALR_CONNECTION_STRING=secretref:signalr-conn" \
+              "APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-conn" \
+              "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn"
 
   # ─── DEPLOY TO VERCEL ───────────────────────────────────────────────────────
   deploy-vercel-production:

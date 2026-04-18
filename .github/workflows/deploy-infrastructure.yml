@@ -49,7 +49,7 @@ jobs:
         if: steps.env.outputs.name == 'production'
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PRODUCTION }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Bicep What-If
         run: |

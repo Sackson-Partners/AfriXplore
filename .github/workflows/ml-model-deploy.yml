@@ -40,14 +40,14 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Fetch secrets from Key Vault
         id: fetch-secrets
         run: |
           fetch_secret() {
             az keyvault secret show \
-              --vault-name kv-afrixplore-production \
+              --vault-name kv-afrixplore-staging \
               --name "$1" \
               --query value -o tsv 2>/dev/null || echo ""
           }
@@ -96,7 +96,7 @@ jobs:
               "import sys,json; d=json.load(sys.stdin); print(d.get('new_accuracy',0))")
           else
             az storage blob download \
-              --account-name stainprodsa \
+              --account-name stafrixplorestagingsa \
               --container-name ml-models \
               --name mineral-id/current_version.json \
               --file /tmp/version.json \
@@ -139,7 +139,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Update inference service env var
         run: |
@@ -147,8 +147,8 @@ jobs:
           echo "Updating inference service to model: $MODEL_VERSION"
 
           az containerapp update \
-            --name ca-afrixplore-ai-inference-production \
-            --resource-group rg-afrixplore-production-southafricanorth \
+            --name ca-geo-worker-staging \
+            --resource-group afrixplore-rg \
             --set-env-vars "CUSTOM_VISION_PUBLISHED_NAME=${MODEL_VERSION}" \
             --output none
 
@@ -158,8 +158,8 @@ jobs:
         run: |
           sleep 30
           FQDN=$(az containerapp show \
-            --name ca-afrixplore-ai-inference-production \
-            --resource-group rg-afrixplore-production-southafricanorth \
+            --name ca-geo-worker-staging \
+            --resource-group afrixplore-rg \
             --query "properties.configuration.ingress.fqdn" -o tsv)
 
           HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
@@ -191,14 +191,14 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_PROD }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Download new TFLite model from Blob
         run: |
           mkdir -p apps/scout-mobile/assets/models
 
           az storage blob download \
-            --account-name stainprodsa \
+            --account-name stafrixplorestagingsa \
             --container-name ml-models \
             --name mineral-id/latest/mineral_id.tflite \
             --file apps/scout-mobile/assets/models/mineral_id.tflite \
