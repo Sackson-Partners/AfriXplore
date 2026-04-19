@@ -7,12 +7,13 @@ import { targetsRouter } from './routes/targets';
 import { exportRouter } from './routes/export';
 import { streamRouter } from './routes/stream';
 import { db } from './db/client';
+import { authMiddleware } from './middleware/auth';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || 'https://platform.afrixplore.io' }));
 app.use(compression());
 app.use(express.json());
 
@@ -25,6 +26,7 @@ app.get('/health', async (_req, res) => {
   }
 });
 
+app.use('/api/v1', authMiddleware);
 app.use('/api/v1/clusters',  clustersRouter);
 app.use('/api/v1/targets',   targetsRouter);
 app.use('/api/v1/export',    exportRouter);
