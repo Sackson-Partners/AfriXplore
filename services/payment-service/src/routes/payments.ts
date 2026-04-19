@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { validate } from '@afrixplore/validation';
 import { db } from '../db/client';
 
 const router = Router();
+
+const PaymentHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: z.string().datetime({ message: 'cursor must be an ISO 8601 timestamp' }).optional(),
+});
 
 /**
  * @openapi
@@ -36,16 +43,16 @@ const router = Router();
  *       401:
  *         $ref: '#/components/schemas/Error'
  */
-router.get('/history', async (req: Request, res: Response) => {
+router.get('/history', validate(PaymentHistoryQuerySchema, 'query'), async (req: Request, res: Response) => {
   const userId = (req as any).userId;
-  const { limit = 20, cursor } = req.query;
+  const { limit, cursor } = req.query as unknown as z.infer<typeof PaymentHistoryQuerySchema>;
 
   let query = `
     SELECT id, type, amount_usd, provider, status, initiated_at, completed_at
     FROM payments
     WHERE scout_id = $1
   `;
-  const params: any[] = [userId];
+  const params: (string | number)[] = [userId];
 
   if (cursor) {
     query += ` AND initiated_at < $2`;
@@ -53,7 +60,7 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 
   query += ` ORDER BY initiated_at DESC LIMIT $${params.length + 1}`;
-  params.push(Math.min(Number(limit), 100));
+  params.push(limit);
 
   const result = await db.query(query, params);
   return res.json({ data: result.rows, count: result.rows.length });
