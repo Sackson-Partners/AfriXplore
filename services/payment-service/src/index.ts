@@ -3,6 +3,8 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { loadSecrets } from '@afrixplore/config';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './docs/swagger';
 import { healthRouter } from './routes/health';
 import { paymentsRouter } from './routes/payments';
 import { stripeWebhookRouter } from './routes/stripeWebhook';
@@ -55,6 +57,10 @@ async function bootstrap() {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  if (process.env.NODE_ENV !== 'production') {
+    app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'AfriXplore Payment Service Docs' }));
+  }
+  app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
   app.use('/webhooks/stripe', stripeWebhookRouter);
 
   app.use('/api/v1', authMiddleware);

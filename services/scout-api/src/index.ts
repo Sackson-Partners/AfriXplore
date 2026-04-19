@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './docs/swagger';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -22,6 +24,15 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('combined'));
 app.use(requestLogger);
+
+// Swagger UI — dev and staging only; JSON spec always available
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/scout/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: 'AfriXplore Scout API Docs',
+    swaggerOptions: { persistAuthorization: true },
+  }));
+}
+app.get('/scout/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 
 // Routes
 app.use('/scout/v1/auth', authLimiter, authRoutes);

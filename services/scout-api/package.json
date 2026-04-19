@@ -25,13 +25,17 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.11.5",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
   },
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/__tests__/**/*.test.ts"]
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ]
   },
   "devDependencies": {
     "@types/compression": "^1.7.5",
@@ -43,6 +47,8 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.5",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
     "eslint": "^8.57.0",
     "jest": "^29.7.0",

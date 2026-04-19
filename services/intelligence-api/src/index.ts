@@ -2,6 +2,8 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './docs/swagger';
 import { clustersRouter } from './routes/clusters';
 import { targetsRouter } from './routes/targets';
 import { exportRouter } from './routes/export';
@@ -35,6 +37,15 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ status: 'error', detail: String(err) });
   }
 });
+
+// Swagger UI — dev and staging only; JSON spec always available
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: 'AfriXplore Intelligence API Docs',
+    swaggerOptions: { persistAuthorization: true },
+  }));
+}
+app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 
 app.use('/api/v1', authMiddleware, generalLimiter);
 app.use('/api/v1/clusters',  clustersRouter);

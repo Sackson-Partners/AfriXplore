@@ -4,6 +4,56 @@ import { db } from '../db/client';
 
 const router = Router();
 
+/**
+ * @openapi
+ * /api/v1/clusters:
+ *   get:
+ *     summary: List anomaly clusters
+ *     description: Returns paginated mineral anomaly clusters filtered by subscriber's licensed territories and DPI threshold.
+ *     tags: [Clusters]
+ *     parameters:
+ *       - in: query
+ *         name: min_dpi
+ *         schema: { type: integer, default: 0, minimum: 0, maximum: 100 }
+ *         description: Minimum Deposit Potential Index score
+ *       - in: query
+ *         name: mineral
+ *         schema: { type: string }
+ *         example: gold
+ *       - in: query
+ *         name: country
+ *         schema: { type: string }
+ *         example: GH
+ *       - in: query
+ *         name: bbox
+ *         schema: { type: string }
+ *         description: "Bounding box: west,south,east,north"
+ *         example: "-3.5,4.5,1.0,11.5"
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+ *       - in: query
+ *         name: cursor
+ *         schema: { type: string }
+ *         description: Pagination cursor (ISO timestamp of last item)
+ *     responses:
+ *       200:
+ *         description: Cluster list with next_cursor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/AnomalyCluster'
+ *                 next_cursor:
+ *                   type: string
+ *                   nullable: true
+ *       401:
+ *         $ref: '#/components/schemas/Error'
+ */
 router.get('/', async (req: Request, res: Response) => {
   const subscriberId   = req.headers['x-subscriber-id'] as string;
   const subscriberTier = req.headers['x-subscriber-tier'] as string;

@@ -14,7 +14,35 @@ const config = {
   scoutClientId: process.env.ENTRA_SCOUT_CLIENT_ID!,
 };
 
-// POST /auth/otp/initiate
+/**
+ * @openapi
+ * /scout/v1/auth/otp/initiate:
+ *   post:
+ *     summary: Initiate phone OTP
+ *     description: Sends a 6-digit OTP to the scout's phone via Azure AD CIAM. Max 3 requests per 10 minutes.
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [phone_number, country]
+ *             properties:
+ *               phone_number:
+ *                 type: string
+ *                 example: "+233501234567"
+ *                 description: E.164 format
+ *               country:
+ *                 type: string
+ *                 example: "GH"
+ *     responses:
+ *       200:
+ *         description: OTP sent — returns continuation_token for /otp/verify
+ *       429:
+ *         description: Too many OTP requests
+ */
 router.post('/otp/initiate', async (req: Request, res: Response) => {
   const schema = z.object({
     phone_number: z.string()
@@ -80,7 +108,7 @@ router.post('/otp/initiate', async (req: Request, res: Response) => {
         errors: error.errors,
       });
     }
-    console.error('OTP initiation error:', error);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'scout-api', ts: new Date().toISOString(), msg: 'OTP initiation error', error: (error as Error).message }) + '\n');
     return res.status(500).json({
       type: 'https://afrixplore.io/errors/otp-failed',
       title: 'OTP Send Failed',
@@ -90,7 +118,41 @@ router.post('/otp/initiate', async (req: Request, res: Response) => {
   }
 });
 
-// POST /auth/otp/verify
+/**
+ * @openapi
+ * /scout/v1/auth/otp/verify:
+ *   post:
+ *     summary: Verify OTP and issue tokens
+ *     description: Verifies the 6-digit code and returns access + refresh tokens. Creates or updates the scout record.
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [otp, continuation_token, phone_number, country]
+ *             properties:
+ *               otp:
+ *                 type: string
+ *                 example: "123456"
+ *               continuation_token:
+ *                 type: string
+ *               phone_number:
+ *                 type: string
+ *               country:
+ *                 type: string
+ *                 example: "GH"
+ *               preferred_language:
+ *                 type: string
+ *                 default: "en"
+ *     responses:
+ *       200:
+ *         description: Tokens issued
+ *       401:
+ *         description: Invalid or expired OTP
+ */
 router.post('/otp/verify', async (req: Request, res: Response) => {
   const schema = z.object({
     otp: z.string().length(6).regex(/^\d{6}$/),
