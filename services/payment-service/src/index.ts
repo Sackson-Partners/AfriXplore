@@ -17,7 +17,7 @@ app.use(helmet());
 // Raw body needed for Stripe webhook signature verification
 app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || 'https://platform.afrixplore.io' }));
 app.use(express.json());
 
 app.use('/health', healthRouter);
