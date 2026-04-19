@@ -8,6 +8,7 @@ import { exportRouter } from './routes/export';
 import { streamRouter } from './routes/stream';
 import { db } from './db/client';
 import { authMiddleware } from './middleware/auth';
+import { generalLimiter, exportLimiter } from './middleware/rateLimiter';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,10 +27,10 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-app.use('/api/v1', authMiddleware);
+app.use('/api/v1', authMiddleware, generalLimiter);
 app.use('/api/v1/clusters',  clustersRouter);
 app.use('/api/v1/targets',   targetsRouter);
-app.use('/api/v1/export',    exportRouter);
+app.use('/api/v1/export',    exportLimiter, exportRouter);
 app.use('/api/v1/stream',    streamRouter);
 
 app.listen(PORT, () => {

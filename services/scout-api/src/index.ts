@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import { errorHandler } from './middleware/errorHandler';
 import { requestLogger } from './middleware/requestLogger';
 import { authMiddleware } from './middleware/auth';
+import { authLimiter, uploadLimiter, ussdLimiter, generalLimiter } from './middleware/rateLimiter';
 import authRoutes from './routes/auth';
 import scoutRoutes from './routes/scouts';
 import uploadRoutes from './routes/upload';
@@ -23,10 +24,10 @@ app.use(morgan('combined'));
 app.use(requestLogger);
 
 // Routes
-app.use('/scout/v1/auth', authRoutes);
-app.use('/scout/v1/scouts', authMiddleware, scoutRoutes);
-app.use('/scout/v1/upload', authMiddleware, uploadRoutes);
-app.use('/scout/v1/ussd', ussdRoutes);   // USSD: Africa's Talking webhook, no JWT
+app.use('/scout/v1/auth', authLimiter, authRoutes);
+app.use('/scout/v1/scouts', authMiddleware, generalLimiter, scoutRoutes);
+app.use('/scout/v1/upload', authMiddleware, uploadLimiter, uploadRoutes);
+app.use('/scout/v1/ussd', ussdLimiter, ussdRoutes);   // USSD: Africa's Talking webhook, no JWT
 
 // Health probe
 app.get('/health', (_req, res) => {

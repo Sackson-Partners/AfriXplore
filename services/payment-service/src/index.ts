@@ -6,6 +6,7 @@ import { paymentsRouter } from './routes/payments';
 import { stripeWebhookRouter } from './routes/stripeWebhook';
 import { mobileMoneyRouter } from './routes/mobileMoney';
 import { authMiddleware } from './middleware/auth';
+import { paymentLimiter, mobileMoneyLimiter } from './middleware/rateLimiter';
 import { serviceBusConsumer } from './consumers/paymentConsumer';
 import 'dotenv/config';
 
@@ -24,8 +25,8 @@ app.use('/health', healthRouter);
 app.use('/webhooks/stripe', stripeWebhookRouter);
 
 app.use('/api/v1', authMiddleware);
-app.use('/api/v1/payments', paymentsRouter);
-app.use('/api/v1/mobile-money', mobileMoneyRouter);
+app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
+app.use('/api/v1/mobile-money', mobileMoneyLimiter, mobileMoneyRouter);
 
 serviceBusConsumer.start().catch(console.error);
 
