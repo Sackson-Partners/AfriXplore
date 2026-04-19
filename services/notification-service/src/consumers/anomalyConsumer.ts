@@ -1,9 +1,24 @@
-import { ServiceBusClient } from '@azure/service-bus';
+import { ServiceBusClient, ServiceBusReceivedMessage } from '@azure/service-bus';
 import { sendSignalRBroadcast } from '../services/signalrService';
 import { sendSMS } from '../services/smsService';
 import { db } from '../db/client';
 
+const log = {
+  info:  (msg: string, extra?: object) => process.stdout.write(JSON.stringify({ level: 'info',  service: 'notification-service', ts: new Date().toISOString(), msg, ...extra }) + '\n'),
+  warn:  (msg: string, extra?: object) => process.stdout.write(JSON.stringify({ level: 'warn',  service: 'notification-service', ts: new Date().toISOString(), msg, ...extra }) + '\n'),
+  error: (msg: string, extra?: object) => process.stderr.write(JSON.stringify({ level: 'error', service: 'notification-service', ts: new Date().toISOString(), msg, ...extra }) + '\n'),
+};
+
 const CONNECTION_STRING = process.env.SERVICE_BUS_CONNECTION_STRING!;
+const MAX_DELIVERY_COUNT = 3;
+
+interface AnomalyMessage {
+  clusterId: string;
+  dpiScore: number;
+  dominantMineral: string;
+  requiresDispatch: boolean;
+  timestamp: string;
+}
 
 class AnomalyConsumer {
   private client: ServiceBusClient | null = null;
@@ -16,37 +31,53 @@ class AnomalyConsumer {
       { receiveMode: 'peekLock' }
     );
 
-    console.log('Anomaly notification consumer started');
+    log.info('Anomaly notification consumer started');
 
     receiver.subscribe({
-      processMessage: async (message) => {
-        const body = message.body as {
-          clusterId: string;
-          dpiScore: number;
-          dominantMineral: string;
-          requiresDispatch: boolean;
-          timestamp: string;
-        };
+      processMessage: async (message: ServiceBusReceivedMessage) => {
+        const body = message.body as AnomalyMessage;
+        const deliveryCount = message.deliveryCount ?? 0;
 
-        await this.handleAnomalyDetected(body);
-        await receiver.completeMessage(message);
+        try {
+          await this.handleAnomalyDetected(body);
+          await receiver.completeMessage(message);
+        } catch (err) {
+          const error = err as Error;
+          log.error('Failed to process anomaly message', {
+            clusterId: body.clusterId,
+            deliveryCount,
+            error: error.message,
+          });
+
+          if (deliveryCount >= MAX_DELIVERY_COUNT - 1) {
+            await receiver.deadLetterMessage(message, {
+              deadLetterReason: 'MaxRetriesExceeded',
+              deadLetterErrorDescription: error.message,
+            });
+            log.error('Message dead-lettered after max retries', {
+              clusterId: body.clusterId,
+              deliveryCount,
+            });
+          } else {
+            // Abandon — redelivered after lock timeout
+            await receiver.abandonMessage(message);
+          }
+        }
       },
-      processError: async (error) => {
-        console.error('Anomaly consumer error:', error.error);
+      processError: async (args) => {
+        log.error('Anomaly consumer error', { error: String(args.error) });
       },
     });
   }
 
-  private async handleAnomalyDetected(body: {
-    clusterId: string;
-    dpiScore: number;
-    dominantMineral: string;
-    requiresDispatch: boolean;
-  }): Promise<void> {
-    console.log(
-      `Anomaly: cluster=${body.clusterId} DPI=${body.dpiScore} mineral=${body.dominantMineral}`
-    );
+  private async handleAnomalyDetected(body: AnomalyMessage): Promise<void> {
+    log.info('Processing anomaly detection', {
+      clusterId: body.clusterId,
+      dpiScore: body.dpiScore,
+      dominantMineral: body.dominantMineral,
+    });
 
+    // Real-time dashboard push via SignalR
     await sendSignalRBroadcast('dashboard-hub', 'AnomalyDetected', {
       clusterId: body.clusterId,
       dpiScore: body.dpiScore,
@@ -55,6 +86,7 @@ class AnomalyConsumer {
       timestamp: new Date().toISOString(),
     });
 
+    // Webhook delivery to licensed subscribers within the cluster's territory
     const subscribers = await db.query(
       `SELECT id, webhook_url, dpi_alert_threshold
        FROM subscribers
@@ -77,11 +109,12 @@ class AnomalyConsumer {
           requires_dispatch: body.requiresDispatch,
           timestamp: new Date().toISOString(),
         }).catch((err: Error) =>
-          console.warn(`Webhook delivery failed for ${sub.id}: ${err.message}`)
+          log.warn('Webhook delivery failed', { subscriberId: sub.id, error: err.message })
         );
       }
     }
 
+    // SMS dispatch to available geologists when immediate field visit is required
     if (body.requiresDispatch) {
       const geologists = await db.query(
         `SELECT phone, full_name
@@ -99,7 +132,7 @@ class AnomalyConsumer {
           `Cluster: ${body.clusterId.slice(0, 8)}\n` +
           `48hr target. Check Field App.`
         ).catch((err: Error) =>
-          console.warn(`SMS failed for ${geo.phone}: ${err.message}`)
+          log.warn('SMS failed', { phone: geo.phone.slice(0, -4) + '****', error: err.message })
         );
       }
     }
