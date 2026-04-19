@@ -19,10 +19,12 @@ app.get('/health/ready', (_, res) => {
   res.json({ status: 'ready', service: 'ai-inference' });
 });
 
-aiInferenceConsumer.start().catch(console.error);
+aiInferenceConsumer.start().catch((err: Error) =>
+  process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: 'AI inference consumer failed to start', error: err.message }) + '\n')
+);
 
 app.listen(PORT, () => {
-  console.log(`AfriXplore AI Inference Service on port ${PORT}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'ai-inference', ts: new Date().toISOString(), msg: `AfriXplore AI Inference Service on port ${PORT}` }) + '\n');
 });
 
 export default app;

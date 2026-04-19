@@ -10,6 +10,15 @@ import { db } from './db/client';
 import { authMiddleware } from './middleware/auth';
 import { generalLimiter, exportLimiter } from './middleware/rateLimiter';
 
+const SERVICE_NAME = 'intelligence-api';
+process.env.SERVICE_NAME = SERVICE_NAME;
+
+// Inline structured logger (no external dep needed — outputs JSON for Azure Monitor)
+const log = {
+  info:  (msg: string, extra?: object) => process.stdout.write(JSON.stringify({ level: 'info',  service: SERVICE_NAME, ts: new Date().toISOString(), msg, ...extra }) + '\n'),
+  error: (msg: string, extra?: object) => process.stderr.write(JSON.stringify({ level: 'error', service: SERVICE_NAME, ts: new Date().toISOString(), msg, ...extra }) + '\n'),
+};
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -34,5 +43,5 @@ app.use('/api/v1/export',    exportLimiter, exportRouter);
 app.use('/api/v1/stream',    streamRouter);
 
 app.listen(PORT, () => {
-  console.log(`AfriXplore Intelligence API on port ${PORT}`);
+  log.info(`AfriXplore Intelligence API on port ${PORT}`);
 });

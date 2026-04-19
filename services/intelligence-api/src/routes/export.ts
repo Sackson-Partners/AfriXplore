@@ -60,7 +60,7 @@ router.get('/clusters', async (req: Request, res: Response) => {
 
     return res.json({ data: result.rows, count: result.rows.length });
   } catch (err) {
-    console.error('Export error:', err);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'intelligence-api', ts: new Date().toISOString(), msg: 'Export error', error: String(err) }) + '\n');
     return res.status(500).json({ error: 'Export failed' });
   }
 });

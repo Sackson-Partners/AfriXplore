@@ -37,7 +37,7 @@ app.get('/health', (_req, res) => {
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(`Scout API listening on :${PORT}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'scout-api', ts: new Date().toISOString(), msg: `Scout API listening on :${PORT}` }) + '\n');
 });
 
 export default app;

@@ -17,5 +17,5 @@ app.use('/health', healthRouter);
 app.use('/api/v1', authMiddleware, generalLimiter);
 app.use('/api/v1/mineral-systems', mineralSystemsRouter);
 
-app.listen(PORT, () => console.log(`MSIM API on port ${PORT}`));
+app.listen(PORT, () => process.stdout.write(JSON.stringify({ level: 'info', service: 'msim-api', ts: new Date().toISOString(), msg: `MSIM API on port ${PORT}` }) + '\n'));
 export default app;

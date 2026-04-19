@@ -99,3 +99,5 @@ export function telemetryMiddleware() {
     next();
   };
 }
+
+export { logger, requestLoggerMiddleware } from './logger';

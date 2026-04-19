@@ -28,10 +28,12 @@ app.use('/api/v1', authMiddleware);
 app.use('/api/v1/payments', paymentLimiter, paymentsRouter);
 app.use('/api/v1/mobile-money', mobileMoneyLimiter, mobileMoneyRouter);
 
-serviceBusConsumer.start().catch(console.error);
+serviceBusConsumer.start().catch((err: Error) =>
+  process.stderr.write(JSON.stringify({ level: 'error', service: 'payment-service', ts: new Date().toISOString(), msg: 'Service Bus consumer failed to start', error: err.message }) + '\n')
+);
 
 app.listen(PORT, () => {
-  console.log(`AfriXplore Payment Service on port ${PORT}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'payment-service', ts: new Date().toISOString(), msg: `AfriXplore Payment Service on port ${PORT}` }) + '\n');
 });
 
 export default app;
