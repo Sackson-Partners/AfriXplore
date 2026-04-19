@@ -60,15 +60,26 @@ export async function disburseFinderfee(request: PayoutRequest): Promise<PayoutR
     }
 
     if (result.success) {
-      await db.query(
-        `UPDATE payments SET status = 'completed', provider_transaction_id = $1, completed_at = NOW(), updated_at = NOW() WHERE id = $2`,
-        [result.providerReference, request.paymentId]
-      );
-
-      await db.query(
-        `UPDATE scouts SET total_earnings_usd = total_earnings_usd + $1, pending_earnings_usd = GREATEST(0, pending_earnings_usd - $1), updated_at = NOW() WHERE id = $2`,
-        [request.amount, request.scoutId]
-      );
+      // Update payment status and scout earnings atomically — if either fails,
+      // neither is committed, preventing a completed payment with uncredited scout.
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          `UPDATE payments SET status = 'completed', provider_transaction_id = $1, completed_at = NOW(), updated_at = NOW() WHERE id = $2`,
+          [result.providerReference, request.paymentId]
+        );
+        await client.query(
+          `UPDATE scouts SET total_earnings_usd = total_earnings_usd + $1, pending_earnings_usd = GREATEST(0, pending_earnings_usd - $1), updated_at = NOW() WHERE id = $2`,
+          [request.amount, request.scoutId]
+        );
+        await client.query('COMMIT');
+      } catch (txError) {
+        await client.query('ROLLBACK');
+        throw txError;
+      } finally {
+        client.release();
+      }
     } else {
       await db.query(
         `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
