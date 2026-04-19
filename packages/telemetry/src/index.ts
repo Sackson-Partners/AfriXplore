@@ -15,7 +15,7 @@ export function initTelemetry(serviceName: string) {
   const connectionString = process.env.APPLICATIONINSIGHTS_CONNECTION_STRING;
 
   if (!connectionString) {
-    console.warn('Application Insights connection string not set — telemetry disabled');
+    process.stderr.write(JSON.stringify({ level: 'warn', service: serviceName, ts: new Date().toISOString(), msg: 'APPLICATIONINSIGHTS_CONNECTION_STRING not set — telemetry disabled' }) + '\n');
     return;
   }
 
@@ -40,7 +40,7 @@ export function initTelemetry(serviceName: string) {
     version: process.env.npm_package_version || '0.0.0',
   };
 
-  console.log(`Application Insights initialized for ${serviceName}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: serviceName, ts: new Date().toISOString(), msg: 'Application Insights initialized' }) + '\n');
 }
 
 export function trackEvent(name: string, properties?: Record<string, string>, measurements?: Record<string, number>) {
@@ -66,7 +66,7 @@ export function trackDependency(
   success: boolean
 ) {
   if (!client) return;
-  client.trackDependency({ dependencyTypeName, name, data, duration, success });
+  client.trackDependency({ dependencyTypeName, name, data, duration, success, resultCode: success ? 200 : 500 });
 }
 
 export function telemetryMiddleware() {

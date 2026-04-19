@@ -9,10 +9,11 @@
     "lint": "eslint src/"
   },
   "dependencies": {
+    "@afrixplore/telemetry": "workspace:^",
     "@azure/identity": "^4.1.0",
     "@azure/service-bus": "^7.9.4",
     "@azure/storage-blob": "^12.17.0",
-    "applicationinsights": "^2.9.5",
+    "applicationinsights": "^2.9.8",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

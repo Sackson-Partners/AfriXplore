@@ -9,8 +9,10 @@
     "lint": "eslint src/"
   },
   "dependencies": {
+    "@afrixplore/telemetry": "workspace:^",
     "@afrixplore/validation": "workspace:*",
     "@azure/identity": "^4.1.0",
+    "applicationinsights": "^2.9.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",

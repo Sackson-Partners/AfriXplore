@@ -1,3 +1,7 @@
+import 'dotenv/config';
+import { initTelemetry } from '@afrixplore/telemetry';
+initTelemetry('ai-inference');
+
 import express from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './docs/swagger';

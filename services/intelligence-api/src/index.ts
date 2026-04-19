@@ -1,3 +1,6 @@
+import { initTelemetry } from '@afrixplore/telemetry';
+initTelemetry('intelligence-api');
+
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';

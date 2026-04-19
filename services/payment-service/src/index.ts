@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import { initTelemetry } from '@afrixplore/telemetry';
+initTelemetry('payment-service');
+
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
