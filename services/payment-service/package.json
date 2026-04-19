@@ -9,6 +9,7 @@
     "lint": "eslint src/"
   },
   "dependencies": {
+    "@afrixplore/config": "workspace:*",
     "@azure/identity": "^4.1.0",
     "@azure/service-bus": "^7.9.4",
     "axios": "^1.7.2",
