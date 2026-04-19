@@ -8,7 +8,10 @@ import { mobileMoneyRouter } from './routes/mobileMoney';
 import { authMiddleware } from './middleware/auth';
 import { paymentLimiter, mobileMoneyLimiter } from './middleware/rateLimiter';
 import { serviceBusConsumer } from './consumers/paymentConsumer';
+import { validateMomoConfig } from './config/momo';
 import 'dotenv/config';
+
+validateMomoConfig();
 
 const app = express();
 const PORT = process.env.PORT || 3003;

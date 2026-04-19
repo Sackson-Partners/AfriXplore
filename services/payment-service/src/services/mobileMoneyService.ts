@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { db } from '../db/client';
+import { MTN_MOMO_BASE_URL, MTN_MOMO_TARGET_ENV } from '../config/momo';
 
 export type MobileMoneyProvider =
   | 'mpesa_kenya'
@@ -28,7 +29,7 @@ export interface PayoutResult {
 }
 
 export async function disburseFinderfee(request: PayoutRequest): Promise<PayoutResult> {
-  console.log(`Disbursing ${request.currency} ${request.amount} to ${request.phoneNumber} via ${request.provider}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'payment-service', ts: new Date().toISOString(), msg: 'Disbursing finder fee', provider: request.provider, currency: request.currency, amount: request.amount }) + '\n');
 
   await db.query(
     `UPDATE payments SET status = 'processing', updated_at = NOW() WHERE id = $1`,
@@ -123,7 +124,7 @@ async function disburseMTN(request: PayoutRequest): Promise<PayoutResult> {
 
   try {
     const tokenResponse = await axios.post(
-      'https://sandbox.momodeveloper.mtn.com/disbursement/token/',
+      `${MTN_MOMO_BASE_URL}/disbursement/token/`,
       {},
       {
         headers: {
@@ -137,7 +138,7 @@ async function disburseMTN(request: PayoutRequest): Promise<PayoutResult> {
     const referenceId = crypto.randomUUID();
 
     await axios.post(
-      'https://sandbox.momodeveloper.mtn.com/disbursement/v1_0/transfer',
+      `${MTN_MOMO_BASE_URL}/disbursement/v1_0/transfer`,
       {
         amount: request.amount.toFixed(2),
         currency: request.currency,
@@ -150,7 +151,7 @@ async function disburseMTN(request: PayoutRequest): Promise<PayoutResult> {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'X-Reference-Id': referenceId,
-          'X-Target-Environment': process.env.NODE_ENV === 'production' ? 'mtnzambia' : 'sandbox',
+          'X-Target-Environment': MTN_MOMO_TARGET_ENV,
           'Ocp-Apim-Subscription-Key': subscriptionKey,
           'Content-Type': 'application/json',
         },
