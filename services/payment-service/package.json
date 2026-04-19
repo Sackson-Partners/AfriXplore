@@ -6,7 +6,24 @@
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test": "jest --coverage"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.ts"],
+    "coverageThreshold": {
+      "global": {
+        "lines": 50,
+        "functions": 50
+      },
+      "./src/config/": {
+        "lines": 80,
+        "functions": 80
+      }
+    },
+    "coveragePathIgnorePatterns": ["/node_modules/", "/dist/"]
   },
   "dependencies": {
     "@afrixplore/config": "workspace:*",
@@ -29,12 +46,14 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.5",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "eslint": "^8.57.0",
+    "ts-jest": "^29.4.9",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5"
   }
