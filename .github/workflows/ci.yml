@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm --filter "./packages/**" build
+
+      - name: Typecheck msim-api
+        run: pnpm --filter "@ain/msim-api" typecheck
+
+      - name: Run tests
+        run: pnpm --filter "@ain/msim-api" test
+        env:
+          NODE_ENV: test
+
+      - name: Build msim-api
+        run: pnpm --filter "@ain/msim-api" build
+
+      - name: Build admin-web
+        run: pnpm --filter "@ain/admin-web" build
+        env:
+          NEXT_PUBLIC_ENTRA_CLIENT_ID: test-client
+          NEXT_PUBLIC_ENTRA_TENANT_ID: test-tenant
+          NEXT_PUBLIC_MSIM_API_URL: http://localhost:3002
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+      - name: Build platform-web
+        run: pnpm --filter "@ain/platform-web" build
+        env:
+          NEXT_PUBLIC_ENTRA_CLIENT_ID: test-client
+          NEXT_PUBLIC_ENTRA_TENANT_ID: test-tenant
+          NEXT_PUBLIC_MSIM_API_URL: http://localhost:3002
+          NEXT_PUBLIC_APP_URL: http://localhost:3001
+          NEXT_PUBLIC_MAPBOX_TOKEN: pk.test
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+        continue-on-error: true

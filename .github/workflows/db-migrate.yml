@@ -1,0 +1,43 @@
+name: Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [staging, production]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  migrate:
+    name: Run DB Migrations (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm --filter "./packages/**" build && pnpm --filter "@ain/msim-api" build
+
+      - name: Run migrations
+        run: pnpm --filter "@ain/msim-api" db:migrate
+        env:
+          AZURE_POSTGRESQL_CONNECTION_STRING: ${{ secrets.AZURE_POSTGRESQL_CONNECTION_STRING }}
+          NODE_ENV: ${{ inputs.environment }}

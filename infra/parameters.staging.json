@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "staging"
+    },
+    "location": {
+      "value": "southafricanorth"
+    },
+    "entraExternalTenantId": {
+      "value": ""
+    },
+    "entraClientId": {
+      "value": ""
+    },
+    "postgresAdminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/SUBSCRIPTION_ID/resourceGroups/rg-ain-bootstrap/providers/Microsoft.KeyVault/vaults/kv-ain-bootstrap"
+        },
+        "secretName": "postgres-admin-password"
+      }
+    },
+    "mapboxToken": {
+      "value": ""
+    }
+  }
+}

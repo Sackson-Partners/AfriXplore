@@ -1,0 +1,64 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_CONTAINER_REGISTRY: cracaindev.azurecr.io
+  RESOURCE_GROUP: rg-ain-dev
+  CONTAINER_APP_NAME: ca-msim-api-staging
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to Azure Container Registry
+        run: az acr login --name cracaindev
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
+          docker build -f services/msim-api/Dockerfile -t "$IMAGE_TAG" .
+          docker push "$IMAGE_TAG"
+
+      - name: Run DB migrations
+        run: |
+          az containerapp job start \
+            --name ca-db-migrate-staging \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
+
+      - name: Deploy to staging Container App
+        run: |
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
+
+      - name: Wait for rollout
+        run: sleep 30
+
+      - name: Health check
+        run: |
+          FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          curl --fail "https://${FQDN}/health/ready" || exit 1

@@ -1,0 +1,108 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (git SHA)'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_CONTAINER_REGISTRY: cracainprod.azurecr.io
+  RESOURCE_GROUP: rg-ain-prod
+  BLUE_APP: ca-msim-api-blue
+  GREEN_APP: ca-msim-api-green
+
+jobs:
+  deploy-production:
+    name: Blue-Green Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Determine active/inactive slots
+        id: slots
+        run: |
+          ACTIVE=$(az containerapp ingress traffic show \
+            --name ${{ env.BLUE_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "[?weight==\`100\`].label" -o tsv 2>/dev/null || echo "blue")
+          if [ "$ACTIVE" = "blue" ]; then
+            echo "active=blue" >> "$GITHUB_OUTPUT"
+            echo "inactive=green" >> "$GITHUB_OUTPUT"
+            echo "inactive_app=${{ env.GREEN_APP }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=green" >> "$GITHUB_OUTPUT"
+            echo "inactive=blue" >> "$GITHUB_OUTPUT"
+            echo "inactive_app=${{ env.BLUE_APP }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run DB migrations
+        run: |
+          az containerapp job start \
+            --name ca-db-migrate-prod \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ inputs.image_tag }}"
+
+      - name: Deploy to inactive slot
+        run: |
+          az containerapp update \
+            --name ${{ steps.slots.outputs.inactive_app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ inputs.image_tag }}"
+
+      - name: Wait and health-check inactive slot
+        run: |
+          sleep 30
+          FQDN=$(az containerapp show \
+            --name ${{ steps.slots.outputs.inactive_app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          for i in 1 2 3; do
+            curl --fail "https://${FQDN}/health/ready" && break
+            sleep 15
+          done
+
+      - name: Shift traffic to new slot (100%)
+        run: |
+          az containerapp ingress traffic set \
+            --name ${{ steps.slots.outputs.inactive_app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --traffic-weight latest=100
+
+      - name: Pill tests against production
+        run: |
+          FQDN=$(az containerapp show \
+            --name ${{ steps.slots.outputs.inactive_app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          BASE_URL="https://${FQDN}"
+          # Auth guard: unauthenticated GET /mines must return 401
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/mines")
+          [ "$STATUS" = "401" ] || { echo "Auth guard failed: got $STATUS"; exit 1; }
+          # Health endpoints must return 200
+          curl --fail "${BASE_URL}/health/live" || exit 1
+          curl --fail "${BASE_URL}/health/ready" || exit 1
+          echo "All pill tests passed"
+
+      - name: Scale down old slot
+        run: |
+          az containerapp update \
+            --name ${{ steps.slots.outputs.active_app }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --min-replicas 0 \
+            --max-replicas 0
+        env:
+          active_app: ${{ steps.slots.outputs.active == 'blue' && env.BLUE_APP || env.GREEN_APP }}

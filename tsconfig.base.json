@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@ain/types": ["./packages/types/src/index.ts"],
+      "@ain/validation": ["./packages/validation/src/index.ts"],
+      "@ain/database": ["./packages/database/src/index.ts"],
+      "@ain/auth": ["./packages/auth/src/index.ts"],
+      "@ain/config": ["./packages/config/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "coverage"]
+}

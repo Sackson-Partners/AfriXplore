@@ -1,0 +1,20 @@
+{
+  "name": "ain-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.4.0",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @ain/msim-api dev\" \"pnpm --filter @ain/admin-web dev\" \"pnpm --filter @ain/platform-web dev\"",
+    "build": "pnpm --filter './packages/*' build && pnpm --filter './services/*' build && pnpm --filter './apps/*' build",
+    "test": "pnpm --filter './services/*' test && pnpm --filter './packages/*' test",
+    "lint": "pnpm -r lint",
+    "db:migrate": "tsx infrastructure/scripts/migrate.ts",
+    "db:seed": "tsx infrastructure/scripts/seed-msim.ts",
+    "db:seed:msim": "tsx infrastructure/scripts/seed-msim.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5"
+  }
+}
