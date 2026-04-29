@@ -8,5 +8,5 @@
     "declarationMap": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "migrations"]
+  "exclude": ["node_modules", "dist", "migrations", "src/__tests__"]
 }

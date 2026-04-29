@@ -29,7 +29,6 @@ param postgresAdminPassword string
 @secure()
 param mapboxToken string = ''
 
-var prefix = 'ain-${environment}'
 var acrName = 'cracain${environment}'
 var kvName = 'kv-ain-${environment}'
 var pgServerName = 'psql-ain-${environment}'
@@ -117,16 +116,6 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01-preview'
       activeDirectoryAuth: 'Disabled'
       passwordAuth: 'Enabled'
     }
-  }
-}
-
-// Enable PostGIS extension
-resource postgresConfig 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-01-preview' = {
-  parent: postgres
-  name: 'azure.extensions'
-  properties: {
-    value: 'POSTGIS,POSTGIS_TOPOLOGY,UUID-OSSP'
-    source: 'user-override'
   }
 }
 
@@ -233,18 +222,12 @@ resource msimApiApp 'Microsoft.App/containerApps@2024-03-01' = {
           allowedHeaders: ['Authorization', 'Content-Type']
         }
       }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: msimApiIdentity.id
-        }
-      ]
     }
     template: {
       containers: [
         {
           name: 'msim-api'
-          image: '${acr.properties.loginServer}/msim-api:latest'
+          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           resources: {
             cpu: json('0.5')
             memory: '1Gi'
@@ -307,20 +290,14 @@ resource dbMigrateJob 'Microsoft.App/jobs@2024-03-01' = {
       triggerType: 'Manual'
       replicaTimeout: 300
       replicaRetryLimit: 1
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: msimApiIdentity.id
-        }
-      ]
     }
     template: {
       containers: [
         {
           name: 'db-migrate'
-          image: '${acr.properties.loginServer}/msim-api:latest'
+          image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
           command: ['node', 'services/msim-api/dist/scripts/migrate.js']
-          resources: { cpu: json('0.25'), memory: '512Mi' }
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'NODE_ENV', value: 'production' }
             { name: 'AZURE_KEY_VAULT_URL', value: keyVault.properties.vaultUri }

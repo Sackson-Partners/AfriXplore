@@ -14,5 +14,5 @@ GRANT USAGE ON SCHEMA public TO ain_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ain_app;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO ain_app;
 
--- Allow ain_app to set the session variable for RLS
-GRANT SET ON PARAMETER "app.current_user_oid" TO ain_app;
+-- Note: GRANT SET ON PARAMETER for custom GUCs requires superuser on Azure Flexible Server.
+-- The API sets app.current_user_oid via SET LOCAL within each transaction as ainuser.

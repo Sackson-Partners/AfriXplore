@@ -17,7 +17,7 @@
     "postgresAdminPassword": {
       "reference": {
         "keyVault": {
-          "id": "/subscriptions/SUBSCRIPTION_ID/resourceGroups/rg-ain-bootstrap/providers/Microsoft.KeyVault/vaults/kv-ain-bootstrap"
+          "id": "/subscriptions/e919967a-c8ff-4896-977b-360167fa1a84/resourceGroups/rg-ain-bootstrap/providers/Microsoft.KeyVault/vaults/kv-ain-bootstrap"
         },
         "secretName": "postgres-admin-password"
       }
