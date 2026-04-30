@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState } from 'react';
 import { StatsBar } from '@/components/dashboard/StatsBar';
 import { AnomalyPanel } from '@/components/dashboard/AnomalyPanel';
