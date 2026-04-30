@@ -22,6 +22,9 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 export function createApp(): express.Application {
   const app = express();
 
+  // Trust Azure Container Apps / load-balancer proxy (fixes express-rate-limit X-Forwarded-For warning)
+  app.set('trust proxy', 1);
+
   // Security middleware
   app.use(helmet());
   app.use(

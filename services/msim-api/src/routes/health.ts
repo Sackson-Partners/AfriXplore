@@ -20,10 +20,16 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
+    const e = err as Record<string, unknown>;
     res.status(503).json({
       status: 'unavailable',
       database: 'disconnected',
-      detail: String(err),
+      detail: e?.message ?? String(err),
+      code: e?.code,
+      errors: Array.isArray(e?.errors)
+        ? (e.errors as unknown[]).map((x) => (x as Record<string, unknown>)?.message ?? String(x))
+        : undefined,
+      connStringSet: !!process.env.AZURE_POSTGRESQL_CONNECTION_STRING,
       timestamp: new Date().toISOString(),
     });
   }
