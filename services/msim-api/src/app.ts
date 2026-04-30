@@ -11,6 +11,12 @@ import exportRouter from './routes/export.js';
 import searchRouter from './routes/search.js';
 import systemsRouter from './routes/systems.js';
 import targetsRouter from './routes/targets.js';
+import recordsRouter from './routes/records.js';
+import concessionsRouter from './routes/concessions.js';
+import regionsRouter from './routes/regions.js';
+import documentsRouter from './routes/documents.js';
+import msimSearchRouter from './routes/msim-search.js';
+import analyticsRouter from './routes/analytics.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 export function createApp(): express.Application {
@@ -51,6 +57,13 @@ export function createApp(): express.Application {
   app.use('/search', searchRouter);
   app.use('/systems', systemsRouter);
   app.use('/targets', targetsRouter);
+  // MSIM Phase 1
+  app.use('/records', recordsRouter);
+  app.use('/concessions', concessionsRouter);
+  app.use('/regions', regionsRouter);
+  app.use('/documents', documentsRouter);
+  app.use('/msim-search', msimSearchRouter);
+  app.use('/analytics', analyticsRouter);
 
   // 404 + error handling
   app.use(notFoundHandler);
