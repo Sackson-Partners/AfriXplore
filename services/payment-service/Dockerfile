@@ -1,18 +1,37 @@
-FROM node:20-alpine AS builder
-WORKDIR /app
-RUN npm install -g pnpm
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install
-COPY . .
-RUN pnpm build
+FROM node:20-alpine AS base
+RUN corepack enable
 
-FROM node:20-alpine AS production
+# ── Builder ───────────────────────────────────────────────────────────────────
+FROM base AS builder
+WORKDIR /repo
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY packages/ ./packages/
+COPY services/payment-service/ ./services/payment-service/
+
+RUN pnpm install --frozen-lockfile
+
+RUN pnpm --filter "@afrixplore/telemetry" \
+         --filter "@afrixplore/types" \
+         --filter "@afrixplore/validation" \
+         --filter "@afrixplore/config" \
+         --filter "@afrixplore/auth" \
+         --filter "@afrixplore/health" \
+         run build
+
+RUN pnpm --filter "@afrixplore/payment-service" run build
+
+RUN pnpm --filter "@afrixplore/payment-service" deploy --prod /app
+
+# ── Production image ──────────────────────────────────────────────────────────
+FROM base AS production
 WORKDIR /app
-RUN npm install -g pnpm
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --prod
-COPY --from=builder /app/dist ./dist
+
+COPY --from=builder /app ./
+COPY --from=builder /repo/services/payment-service/dist ./dist
+
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 USER nodejs
+
 EXPOSE 3003
 CMD ["node", "dist/index.js"]

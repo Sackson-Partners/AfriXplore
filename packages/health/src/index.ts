@@ -58,7 +58,7 @@ export function createHealthRouter(
       if (dbCheck.status === 'down' && dbCheck.critical) {
         overallStatus = 'unhealthy';
       } else if (dbCheck.status === 'degraded') {
-        if (overallStatus !== 'unhealthy') overallStatus = 'degraded';
+        overallStatus = 'degraded';
       }
     }
 
