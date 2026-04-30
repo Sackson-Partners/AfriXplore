@@ -103,8 +103,8 @@ importers:
         specifier: 0.74.3
         version: 0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0)
       react-native-maps:
-        specifier: 1.14.0
-        version: 1.14.0(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
+        specifier: 1.27.2
+        version: 1.27.2(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
     devDependencies:
       '@types/react':
         specifier: ~18.2.79
@@ -255,8 +255,8 @@ importers:
         specifier: ~2.16.1
         version: 2.16.2(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
       react-native-maps:
-        specifier: 1.14.0
-        version: 1.14.0(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
+        specifier: 1.27.2
+        version: 1.27.2(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
       react-native-reanimated:
         specifier: ~3.10.1
         version: 3.10.1(@babel/core@7.29.0)(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
@@ -2046,7 +2046,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {'0': node >=0.10.0}
+    engines: {node: '>=0.10.0'}
 
   '@expo/cli@0.18.31':
     resolution: {integrity: sha512-v9llw9fT3Uv+TCM6Xllo54t672CuYtinEQZ2LPJ2EJsCwuTc4Cd2gXQaouuIVD21VoeGQnr5JtJuWbF97sBKzQ==}
@@ -3321,6 +3321,11 @@ packages:
 
   '@xmldom/xmldom@0.8.12':
     resolution: {integrity: sha512-9k/gHF6n/pAi/9tqr3m3aqkuiNosYTurLLUtc7xQ9sxB/wm7WPygCv8GYa6mS0fLJEHhqMC1ATYhz++U/lRHqg==}
+    engines: {node: '>=10.0.0'}
+    deprecated: this version has critical issues, please update to the latest version
+
+  '@xmldom/xmldom@0.8.13':
+    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
 
   '@zxing/text-encoding@0.9.0':
@@ -6906,12 +6911,12 @@ packages:
       react: '*'
       react-native: '*'
 
-  react-native-maps@1.14.0:
-    resolution: {integrity: sha512-ai7h4UdRLGPFCguz1fI8n4sKLEh35nZXHAH4nSWyAeHGrN8K9GjICu9Xd4Q5Ok4h+WwrM6Xz5pGbF3Qm1tO6iQ==}
-    engines: {node: '>=18'}
+  react-native-maps@1.27.2:
+    resolution: {integrity: sha512-VKr+xZ2RZGHHJlY6KhlafvGSmK0dq/tUu5uhfJ7K9rwN5pUdubdugzMKGDU/16lXmQSg7xbClKhRctj3Pm5F5g==}
+    engines: {node: '>= 20.19.4'}
     peerDependencies:
-      react: '>= 17.0.1'
-      react-native: '>= 0.64.3'
+      react: '>= 18.3.1'
+      react-native: '>= 0.76.0'
       react-native-web: '>= 0.11'
     peerDependenciesMeta:
       react-native-web:
@@ -7904,18 +7909,22 @@ packages:
 
   uuid@10.0.0:
     resolution: {integrity: sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   uuid@7.0.3:
     resolution: {integrity: sha512-DPSke0pXhTZgoF/d+WSt2QaKMCFSfx7QegxEWT+JOuHF5aWrKEn0G+ztjuJg/gG8/ItK+rbPCD/yNv8yyih6Cg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   uuid@8.3.2:
     resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   uuid@9.0.1:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   v8-to-istanbul@9.3.0:
@@ -9854,7 +9863,7 @@ snapshots:
 
   '@expo/plist@0.5.2':
     dependencies:
-      '@xmldom/xmldom': 0.8.12
+      '@xmldom/xmldom': 0.8.13
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
 
@@ -11581,6 +11590,8 @@ snapshots:
   '@xmldom/xmldom@0.7.13': {}
 
   '@xmldom/xmldom@0.8.12': {}
+
+  '@xmldom/xmldom@0.8.13': {}
 
   '@zxing/text-encoding@0.9.0':
     optional: true
@@ -15919,7 +15930,7 @@ snapshots:
       react: 18.2.0
       react-native: 0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0)
 
-  react-native-maps@1.14.0(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0):
+  react-native-maps@1.27.2(react-native@0.74.3(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0):
     dependencies:
       '@types/geojson': 7946.0.16
       react: 18.2.0
