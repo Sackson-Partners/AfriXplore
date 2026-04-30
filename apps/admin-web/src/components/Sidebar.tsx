@@ -9,6 +9,10 @@ const navItems = [
   { href: '/mines', label: 'Mines' },
   { href: '/systems', label: 'Mineral Systems' },
   { href: '/targets', label: 'MSIM Targets' },
+  { href: '/regions', label: 'Regions' },
+  { href: '/records', label: 'Mining Records' },
+  { href: '/concessions', label: 'Concessions' },
+  { href: '/ingestion', label: 'Ingestion' },
   { href: '/subscribers', label: 'Subscribers' },
 ];
 
