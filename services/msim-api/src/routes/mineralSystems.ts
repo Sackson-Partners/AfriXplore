@@ -1,13 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { validate, BboxSchema } from '@afrixplore/validation';
-import { Pool } from 'pg';
+import { db } from '../db/client';
 
 const router = Router();
-const db = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
-});
 
 const MineralSystemsQuerySchema = z.object({
   type: z.string().max(100).optional(),
