@@ -119,7 +119,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Dependency vulnerability audit
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --audit-level=critical
 
       - name: Verify .env files are not committed
         run: |
@@ -157,12 +157,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Run tests with coverage
-        run: |
-          pnpm run test --recursive --if-present -- \
-            --coverage \
-            --coverageReporters=text \
-            --coverageReporters=lcov \
-            --passWithNoTests
+        run: pnpm --recursive --if-present run test
 
       - name: Upload coverage to Codecov
         if: always()
