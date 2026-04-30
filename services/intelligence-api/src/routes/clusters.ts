@@ -106,7 +106,9 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (params.data_lag_days > 0) {
-      spatialFilter += ` AND ac.last_updated < NOW() - INTERVAL '${Math.floor(params.data_lag_days)} days'`;
+      spatialFilter += ` AND ac.last_updated < NOW() - ($${paramIdx} * INTERVAL '1 day')`;
+      queryParams.push(Math.floor(params.data_lag_days));
+      paramIdx++;
     }
 
     const territoryFilter = territories
