@@ -1,0 +1,59 @@
+version: 2
+updates:
+  # pnpm monorepo — root
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Accra"
+    open-pull-requests-limit: 5
+    groups:
+      azure-sdk:
+        patterns:
+          - "@azure/*"
+        update-types:
+          - "minor"
+          - "patch"
+      msal:
+        patterns:
+          - "@azure/msal-*"
+          - "@microsoft/applicationinsights-*"
+      next-ecosystem:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "@next/*"
+      testing:
+        patterns:
+          - "jest"
+          - "@types/jest"
+          - "ts-jest"
+          - "@playwright/test"
+    ignore:
+      # Major version bumps require manual review
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Africa/Accra"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"

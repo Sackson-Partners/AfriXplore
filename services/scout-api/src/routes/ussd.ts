@@ -5,9 +5,19 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { validate, AfricanPhoneSchema } from '@afrixplore/validation';
 import { db } from '../db/client';
 import { ServiceBusClient } from '@azure/service-bus';
 import { v4 as uuidv4 } from 'uuid';
+
+const USSDCallbackSchema = z.object({
+  sessionId: z.string().max(50),
+  serviceCode: z.string().max(20).optional(),
+  phoneNumber: AfricanPhoneSchema,
+  text: z.string().max(200).default(''),
+  networkCode: z.string().max(10).optional(),
+});
 
 const router = Router();
 
@@ -95,13 +105,8 @@ const VOLUME_MAP: Record<string, string> = {
 };
 
 // ─── POST /api/v1/ussd/callback ───────────────────────────────────────────────
-router.post('/callback', async (req: Request, res: Response) => {
-  const { sessionId, phoneNumber, text = '' } = req.body as {
-    sessionId: string;
-    serviceCode: string;
-    phoneNumber: string;
-    text: string;
-  };
+router.post('/callback', validate(USSDCallbackSchema, 'body'), async (req: Request, res: Response) => {
+  const { sessionId, phoneNumber, text } = req.body as z.infer<typeof USSDCallbackSchema>;
 
   res.setHeader('Content-Type', 'text/plain');
 
@@ -220,7 +225,7 @@ router.post('/callback', async (req: Request, res: Response) => {
 
     return res.send(ERROR_MSG);
   } catch (error) {
-    console.error('USSD handler error:', error);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'scout-api', ts: new Date().toISOString(), msg: 'USSD handler error', error: (error as Error).message }) + '\n');
     sessions.delete(sessionId);
     return res.send(ERROR_MSG);
   }

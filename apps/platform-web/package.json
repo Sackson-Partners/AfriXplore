@@ -5,29 +5,36 @@
     "dev": "next dev -p 3005",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "next": "14.2.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "stripe": "^16.0.0",
-    "@azure/msal-react": "^2.0.22",
     "@azure/msal-browser": "^3.14.0",
+    "@azure/msal-react": "^2.0.22",
+    "@microsoft/applicationinsights-react-js": "^19.4.0",
+    "@microsoft/applicationinsights-web": "^3.4.1",
     "@microsoft/signalr": "^8.0.0",
     "@tanstack/react-query": "^5.45.1",
-    "recharts": "^2.12.7",
-    "tailwindcss": "^3.4.4",
     "lucide-react": "^0.400.0",
+    "next": "14.2.35",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.12.7",
+    "stripe": "^16.0.0",
+    "tailwindcss": "^3.4.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/react": "^18.3.3",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.14.9",
-    "typescript": "^5.5.3",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.5",
+    "@types/react": "^18.3.3",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
     "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.39"
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8.4.39",
+    "typescript": "^5.5.3"
   }
 }

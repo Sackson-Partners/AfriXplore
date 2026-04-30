@@ -21,7 +21,7 @@ export async function sendSMS(phoneNumber: string, message: string): Promise<voi
       },
     }
   );
-  console.log(`SMS sent to ${phoneNumber}`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'notification-service', ts: new Date().toISOString(), msg: 'SMS sent', phone: phoneNumber.slice(0, -4) + '****' }) + '\n');
 }
 
 export async function sendBulkSMS(recipients: string[], message: string): Promise<void> {

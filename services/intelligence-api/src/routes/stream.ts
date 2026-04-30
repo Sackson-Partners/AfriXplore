@@ -1,6 +1,17 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { validate } from '@afrixplore/validation';
 
 const router = Router();
+
+const WebhookBodySchema = z.object({
+  webhook_url: z.string().url('webhook_url must be a valid HTTPS URL').refine(
+    (url) => url.startsWith('https://'),
+    'webhook_url must use HTTPS'
+  ),
+  dpi_threshold: z.coerce.number().int().min(0).max(100).default(70),
+  minerals: z.union([z.array(z.string().max(50)), z.literal('all')]).default('all'),
+});
 
 router.get('/negotiate', async (req: Request, res: Response) => {
   const subscriberId   = req.headers['x-subscriber-id'] as string;
@@ -29,19 +40,9 @@ async function generateSignalRToken(userId: string): Promise<string> {
   return `${userId}-${Date.now()}`;
 }
 
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/webhook', validate(WebhookBodySchema, 'body'), async (req: Request, res: Response) => {
   const subscriberId = req.headers['x-subscriber-id'] as string;
-  const { webhook_url, dpi_threshold, minerals } = req.body;
-
-  try {
-    new URL(webhook_url);
-  } catch {
-    return res.status(400).json({
-      type: 'https://afrixplore.io/errors/validation',
-      title: 'Invalid webhook URL',
-      status: 400,
-    });
-  }
+  const { webhook_url, dpi_threshold, minerals } = req.body as z.infer<typeof WebhookBodySchema>;
 
   try {
     const testResponse = await fetch(webhook_url, {
@@ -77,14 +78,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     `UPDATE subscribers
      SET webhook_url = $1, dpi_alert_threshold = $2, updated_at = NOW()
      WHERE id = $3`,
-    [webhook_url, dpi_threshold || 70, subscriberId]
+    [webhook_url, dpi_threshold, subscriberId]
   );
 
   return res.json({
     status: 'configured',
     webhook_url,
-    dpi_threshold: dpi_threshold || 70,
-    minerals: minerals || 'all',
+    dpi_threshold,
+    minerals,
     test_sent: true,
   });
 });

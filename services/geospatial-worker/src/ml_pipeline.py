@@ -33,16 +33,16 @@ def get_ground_truth_samples(conn, since_days: int = 30) -> list:
         cur.execute("""
             SELECT
                 r.id,
-                r.photos,
+                r.image_urls,
                 r.mineral_type as ground_truth_mineral,
                 ma.predictions as ai_predictions,
                 ma.confidence as previous_confidence
             FROM reports r
             JOIN mineral_assessments ma ON ma.report_id = r.id
-            WHERE r.status = 'validated'
+            WHERE r.status = 'processed'
               AND r.created_at > NOW() - INTERVAL '%s days'
-              AND r.photos IS NOT NULL
-              AND jsonb_array_length(r.photos) > 0
+              AND r.image_urls IS NOT NULL
+              AND array_length(r.image_urls, 1) > 0
             ORDER BY r.created_at DESC
         """, (since_days,))
         return cur.fetchall()
@@ -55,8 +55,9 @@ def download_training_images(samples: list, output_dir: Path) -> dict:
 
     for sample in samples:
         mineral = sample['ground_truth_mineral']
-        photos = sample.get('photos', [])
-        if not photos:
+        # image_urls is TEXT[] — plain HTTPS URLs, not JSON objects
+        image_urls = sample.get('image_urls') or []
+        if not image_urls:
             continue
         if mineral not in mineral_images:
             mineral_images[mineral] = []
@@ -64,19 +65,19 @@ def download_training_images(samples: list, output_dir: Path) -> dict:
         mineral_dir = output_dir / mineral
         mineral_dir.mkdir(exist_ok=True)
 
-        for photo in photos[:2]:
-            blob_path = photo.get('blob_path')
-            if not blob_path:
+        for url in image_urls[:2]:
+            if not url:
                 continue
             try:
-                container = 'uploads'
-                blob = blob_client.get_blob_client(container, blob_path)
-                image_path = mineral_dir / f"{sample['id']}_{blob_path.split('/')[-1]}"
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+                filename = url.split('/')[-1].split('?')[0] or f"{sample['id']}.jpg"
+                image_path = mineral_dir / f"{sample['id']}_{filename}"
                 with open(image_path, 'wb') as f:
-                    f.write(blob.download_blob().readall())
+                    f.write(response.content)
                 mineral_images[mineral].append(str(image_path))
             except Exception as e:
-                logger.warning(f"Failed to download {blob_path}: {e}")
+                logger.warning(f"Failed to download {url}: {e}")
 
     return mineral_images
 
@@ -305,25 +306,51 @@ def run_ml_pipeline():
             logger.info(f"Only {len(samples)} samples — minimum 50 required. Skipping.")
             return
 
-        mineral_images = download_training_images(samples, output_dir)
+        try:
+            mineral_images = download_training_images(samples, output_dir)
+        except Exception as e:
+            logger.error(f"Image download failed — skipping pipeline run: {e}")
+            return
+
         total_images = sum(len(v) for v in mineral_images.values())
         logger.info(f"Downloaded {total_images} images across {len(mineral_images)} minerals")
 
-        current_accuracy = evaluate_current_model_accuracy(mineral_images)
-        upload_stats = upload_new_training_images(mineral_images)
-        logger.info(f"Upload stats: {upload_stats}")
+        if total_images == 0:
+            logger.warning("No images downloaded — skipping pipeline run")
+            return
+
+        try:
+            current_accuracy = evaluate_current_model_accuracy(mineral_images)
+        except Exception as e:
+            logger.warning(f"Model evaluation failed — using accuracy=0.0 as baseline: {e}")
+            current_accuracy = 0.0
+
+        try:
+            upload_stats = upload_new_training_images(mineral_images)
+            logger.info(f"Upload stats: {upload_stats}")
+        except Exception as e:
+            logger.error(f"Training image upload failed — aborting pipeline run: {e}")
+            return
 
         version = f"mineral-id-v{datetime.now().strftime('%Y%m')}"
-        should_deploy, iteration_id, new_accuracy = train_and_evaluate_new_model(current_accuracy)
+
+        try:
+            should_deploy, iteration_id, new_accuracy = train_and_evaluate_new_model(current_accuracy)
+        except Exception as e:
+            logger.error(f"Model training failed — aborting pipeline run: {e}")
+            return
 
         if should_deploy:
             logger.info(f"Deploying improved model ({new_accuracy:.3f} vs {current_accuracy:.3f})...")
-            publish_new_model(iteration_id, version)
+            try:
+                publish_new_model(iteration_id, version)
+                tflite_bytes = export_tflite_model(iteration_id)
+                upload_tflite_to_blob(tflite_bytes, version)
+                logger.info(f"ML Pipeline SUCCESS — new accuracy: {new_accuracy:.3f}, version: {version}")
+            except Exception as e:
+                logger.error(f"Model deploy/export failed — iteration {iteration_id} trained but not published: {e}")
+                return
 
-            tflite_bytes = export_tflite_model(iteration_id)
-            upload_tflite_to_blob(tflite_bytes, version)
-
-            logger.info(f"ML Pipeline SUCCESS — new accuracy: {new_accuracy:.3f}, version: {version}")
             write_pipeline_result(
                 version=version,
                 deployed=True,

@@ -20,16 +20,6 @@ MIN_SAMPLES = int(os.getenv('CLUSTER_MIN_SAMPLES', '3'))       # 3 reports minim
 EARTH_RADIUS_KM = 6371.0
 
 
-def _haversine_matrix(coords_rad: np.ndarray) -> np.ndarray:
-    """Return pairwise haversine distance matrix in km."""
-    lat = coords_rad[:, 0]
-    lon = coords_rad[:, 1]
-    dlat = lat[:, None] - lat[None, :]
-    dlon = lon[:, None] - lon[None, :]
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat[:, None]) * np.cos(lat[None, :]) * np.sin(dlon / 2) ** 2
-    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
-
-
 def run_clustering_cycle():
     """Fetch recent unclustered reports and update anomaly_clusters table."""
     logger.info('Starting clustering cycle')
@@ -43,7 +33,7 @@ def run_clustering_cycle():
                        ST_X(location::geometry) AS lon,
                        country
                 FROM reports
-                WHERE status IN ('submitted', 'under_review')
+                WHERE status IN ('pending', 'processing')
                   AND location IS NOT NULL
                 ORDER BY created_at DESC
                 LIMIT 5000
@@ -56,19 +46,33 @@ def run_clustering_cycle():
 
         coords = np.array([[r['lat'], r['lon']] for r in rows])
         coords_rad = np.radians(coords)
-        dist_matrix = _haversine_matrix(coords_rad)
 
+        # BallTree + haversine avoids O(n²) precomputed distance matrix.
+        # eps must be in radians: km / earth_radius.
         db = DBSCAN(
-            eps=EPSILON_KM,
+            eps=EPSILON_KM / EARTH_RADIUS_KM,
             min_samples=MIN_SAMPLES,
-            metric='precomputed'
+            metric='haversine',
+            algorithm='ball_tree',
         )
-        labels = db.fit_predict(dist_matrix)
+        labels = db.fit_predict(coords_rad)
 
         unique_labels = set(labels) - {-1}
         logger.info(f'Found {len(unique_labels)} clusters from {len(rows)} reports')
 
+        # anomaly_clusters has no unique constraint on centroid, so ON CONFLICT DO NOTHING
+        # never fires — every run would accumulate duplicates. Instead, delete existing
+        # clusters for the countries we just recomputed, then insert fresh results.
+        countries_in_run = [r['country'] for r in rows if r['country']]
+        countries_in_run = list(set(countries_in_run))
+
         with conn.cursor() as cur:
+            if countries_in_run:
+                cur.execute(
+                    "DELETE FROM anomaly_clusters WHERE country = ANY(%s)",
+                    (countries_in_run,)
+                )
+
             for cluster_id in unique_labels:
                 mask = labels == cluster_id
                 cluster_rows = [rows[i] for i in range(len(rows)) if mask[i]]
@@ -88,7 +92,6 @@ def run_clustering_cycle():
                         ST_SetSRID(ST_MakePoint(%s, %s), 4326),
                         %s, %s, %s, NOW()
                     )
-                    ON CONFLICT DO NOTHING
                 """, (centroid_lon, centroid_lat, dominant, len(cluster_rows), country))
 
         conn.commit()

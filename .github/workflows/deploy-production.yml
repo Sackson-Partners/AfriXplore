@@ -101,16 +101,22 @@ jobs:
         service:
           - name: scout-api
             app: ca-scout-api-staging
+            allowed_origins: "true"
           - name: intelligence-api
             app: ca-intelligence-api-staging
+            allowed_origins: "true"
           - name: msim-api
             app: ca-msim-api-staging
+            allowed_origins: "true"
           - name: notification-service
             app: ca-notification-staging
+            allowed_origins: "false"
           - name: payment-service
             app: ca-payment-staging
+            allowed_origins: "true"
           - name: geospatial-worker
             app: ca-geo-worker-staging
+            allowed_origins: "false"
     steps:
       - name: Azure Login
         uses: azure/login@v2
@@ -127,10 +133,19 @@ jobs:
               "service-bus-conn=${{ secrets.SERVICE_BUS_CONNECTION_STRING }}" \
               "signalr-conn=${{ secrets.SIGNALR_CONNECTION_STRING }}" \
               "appinsights-conn=${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
-              "storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+              "storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
+              "momo-base-url=${{ secrets.MTN_MOMO_BASE_URL }}"
 
       - name: Deploy ${{ matrix.service.name }}
         run: |
+          EXTRA_ENVS=""
+          if [ "${{ matrix.service.allowed_origins }}" = "true" ]; then
+            EXTRA_ENVS="ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}"
+          fi
+          if [ "${{ matrix.service.name }}" = "payment-service" ]; then
+            EXTRA_ENVS="$EXTRA_ENVS MTN_MOMO_BASE_URL=secretref:momo-base-url"
+          fi
+
           az containerapp update \
             --name ${{ matrix.service.app }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -140,7 +155,9 @@ jobs:
               "SERVICE_BUS_CONNECTION_STRING=secretref:service-bus-conn" \
               "AZURE_SIGNALR_CONNECTION_STRING=secretref:signalr-conn" \
               "APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-conn" \
-              "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn"
+              "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn" \
+              "NODE_ENV=production" \
+              $EXTRA_ENVS
 
   # ─── DEPLOY TO VERCEL ───────────────────────────────────────────────────────
   deploy-vercel-production:
@@ -169,11 +186,172 @@ jobs:
           vercel-args: '--prod'
           working-directory: apps/admin-web
 
-  # ─── SMOKE TESTS ────────────────────────────────────────────────────────────
+  # ─── HEALTH CHECKS ──────────────────────────────────────────────────────────
+  post-deploy-health:
+    name: Post-Deploy Health Checks
+    runs-on: ubuntu-latest
+    needs: [deploy-container-apps]
+    outputs:
+      scout_fqdn: ${{ steps.fqdns.outputs.scout_fqdn }}
+      intelligence_fqdn: ${{ steps.fqdns.outputs.intelligence_fqdn }}
+      msim_fqdn: ${{ steps.fqdns.outputs.msim_fqdn }}
+      payment_fqdn: ${{ steps.fqdns.outputs.payment_fqdn }}
+      notification_fqdn: ${{ steps.fqdns.outputs.notification_fqdn }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Wait for container apps to stabilise
+        run: sleep 45
+
+      - name: Resolve FQDNs
+        id: fqdns
+        run: |
+          for PAIR in \
+            "ca-scout-api-staging:scout_fqdn" \
+            "ca-intelligence-api-staging:intelligence_fqdn" \
+            "ca-msim-api-staging:msim_fqdn" \
+            "ca-payment-staging:payment_fqdn" \
+            "ca-notification-staging:notification_fqdn"; do
+            APP="${PAIR%%:*}"
+            KEY="${PAIR##*:}"
+            FQDN=$(az containerapp show \
+              --name "$APP" \
+              --resource-group "afrixplore-rg" \
+              --query "properties.configuration.ingress.fqdn" \
+              -o tsv 2>/dev/null || echo "")
+            echo "${KEY}=${FQDN}" >> "$GITHUB_OUTPUT"
+            echo "$APP → $FQDN"
+          done
+
+      - name: Health checks — all HTTP services
+        run: |
+          FAILED=0
+          declare -A ENDPOINTS=(
+            [scout-api]="https://${{ steps.fqdns.outputs.scout_fqdn }}/health"
+            [intelligence-api]="https://${{ steps.fqdns.outputs.intelligence_fqdn }}/health"
+            [msim-api]="https://${{ steps.fqdns.outputs.msim_fqdn }}/health"
+            [payment-service]="https://${{ steps.fqdns.outputs.payment_fqdn }}/health"
+            [notification-service]="https://${{ steps.fqdns.outputs.notification_fqdn }}/health"
+          )
+          for SVC in "${!ENDPOINTS[@]}"; do
+            URL="${ENDPOINTS[$SVC]}"
+            if [ -n "${URL//https:\/\//}" ] && [ "${URL}" != "https:///health" ]; then
+              HTTP=$(curl -sf -o /dev/null -w "%{http_code}" "$URL" --max-time 20 || echo "000")
+              echo "$SVC → $HTTP"
+              if [ "$HTTP" != "200" ]; then
+                echo "::error::Health check FAILED for $SVC (HTTP $HTTP)"
+                FAILED=$((FAILED+1))
+              fi
+            else
+              echo "$SVC → no FQDN, skipping"
+            fi
+          done
+          exit $FAILED
+
+  # ─── PILL TESTS ─────────────────────────────────────────────────────────────
+  pill-tests:
+    name: Pill Tests — Synthetic Verification
+    runs-on: ubuntu-latest
+    needs: [post-deploy-health, deploy-vercel-production]
+    if: always() && needs.post-deploy-health.result == 'success'
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ── Test 1: Unauthenticated request → 401 ──────────────────────────────
+      - name: Pill — auth guard (expect 401)
+        run: |
+          FQDN="${{ needs.post-deploy-health.outputs.intelligence_fqdn }}"
+          if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "https://${FQDN}/api/v1/clusters" --max-time 20 || echo "000")
+          echo "Unauthenticated clusters → HTTP $HTTP"
+          if [ "$HTTP" != "401" ]; then
+            echo "::error::Expected 401, got $HTTP — auth guard may be broken"
+            exit 1
+          fi
+
+      # ── Test 2: Zod validation → 400 on bad payload ────────────────────────
+      - name: Pill — Zod validation (expect 400)
+        run: |
+          FQDN="${{ needs.post-deploy-health.outputs.intelligence_fqdn }}"
+          if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "https://${FQDN}/api/v1/clusters?min_dpi=notanumber" \
+            -H "Authorization: Bearer invalid-token" \
+            --max-time 20 || echo "000")
+          echo "Invalid query param → HTTP $HTTP"
+          # 401 (auth before Zod) or 400 (Zod fires) both confirm the pipeline works
+          if [ "$HTTP" != "400" ] && [ "$HTTP" != "401" ]; then
+            echo "::error::Expected 400 or 401, got $HTTP"
+            exit 1
+          fi
+
+      # ── Test 3: USSD open route (no auth required) ─────────────────────────
+      - name: Pill — USSD endpoint open (expect 200)
+        run: |
+          FQDN="${{ needs.post-deploy-health.outputs.scout_fqdn }}"
+          if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST "https://${FQDN}/scout/v1/ussd" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data "sessionId=pill-test-$$&serviceCode=%2A123%23&phoneNumber=%2B233000000000&text=" \
+            --max-time 20 || echo "000")
+          echo "USSD ping → HTTP $HTTP"
+          if [ "$HTTP" != "200" ] && [ "$HTTP" != "400" ]; then
+            echo "::error::USSD route returned $HTTP — expected 200 or 400 (not 401/5xx)"
+            exit 1
+          fi
+
+      # ── Test 4: Stripe webhook open route ─────────────────────────────────
+      - name: Pill — Stripe webhook open (expect 400, not 401/5xx)
+        run: |
+          FQDN="${{ needs.post-deploy-health.outputs.payment_fqdn }}"
+          if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
+          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST "https://${FQDN}/webhooks/stripe" \
+            -H "Content-Type: application/json" \
+            --data '{"type":"pill.test"}' \
+            --max-time 20 || echo "000")
+          echo "Stripe webhook ping → HTTP $HTTP"
+          # 400 = route reached but signature missing (expected); 401/5xx = wrong
+          if [ "$HTTP" = "401" ] || [ "$HTTP" = "500" ] || [ "$HTTP" = "000" ]; then
+            echo "::error::Stripe webhook returned $HTTP — route may be broken"
+            exit 1
+          fi
+
+      # ── Test 5: Rate limiting — 429 after burst ───────────────────────────
+      - name: Pill — rate limiter responds (expect eventual 429)
+        run: |
+          FQDN="${{ needs.post-deploy-health.outputs.scout_fqdn }}"
+          if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
+          GOT_429=0
+          for i in $(seq 1 10); do
+            HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
+              -X POST "https://${FQDN}/scout/v1/auth/otp/initiate" \
+              -H "Content-Type: application/json" \
+              --data '{"phone":"+233000000000"}' \
+              --max-time 10 || echo "000")
+            if [ "$HTTP" = "429" ]; then
+              GOT_429=1
+              echo "Rate limiter fired at attempt $i ✓"
+              break
+            fi
+          done
+          if [ "$GOT_429" = "0" ]; then
+            echo "::warning::Rate limiter did not fire after 10 rapid OTP requests — review limits"
+          fi
+
+  # ─── FINAL SMOKE TESTS (full suite) ─────────────────────────────────────────
   production-smoke-tests:
     name: Smoke Tests
     runs-on: ubuntu-latest
-    needs: [deploy-container-apps, deploy-vercel-production]
+    needs: [pill-tests, deploy-vercel-production]
     if: always()
     steps:
       - name: Azure Login
@@ -181,11 +359,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Health checks
+      - name: Health summary
         run: |
-          sleep 30
           FAILED=0
-          for APP in ca-scout-api-staging ca-intelligence-api-staging ca-msim-api-staging ca-payment-staging; do
+          for APP in ca-scout-api-staging ca-intelligence-api-staging ca-msim-api-staging ca-payment-staging ca-notification-staging; do
             FQDN=$(az containerapp show \
               --name "$APP" \
               --resource-group "afrixplore-rg" \

@@ -1,11 +1,20 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { validate, BboxSchema } from '@afrixplore/validation';
 import { db } from '../db/client';
 
 const router = Router();
 
-router.get('/', async (req: Request, res: Response) => {
+const TargetsQuerySchema = z.object({
+  mineral: z.string().max(100).optional(),
+  confidence_level: z.enum(['low', 'medium', 'high', 'very_high']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  bbox: BboxSchema.optional(),
+});
+
+router.get('/', validate(TargetsQuerySchema, 'query'), async (req: Request, res: Response) => {
   const userId = (req as any).userId;
-  const { mineral, confidence_level, limit = 50 } = req.query;
+  const { mineral, confidence_level, limit, bbox } = req.query as unknown as z.infer<typeof TargetsQuerySchema>;
 
   let query = `
     SELECT
@@ -22,7 +31,7 @@ router.get('/', async (req: Request, res: Response) => {
     ))
   `;
 
-  const params: any[] = [userId];
+  const params: (string | number | null)[] = [userId];
   let idx = 2;
 
   if (mineral) {
@@ -37,8 +46,15 @@ router.get('/', async (req: Request, res: Response) => {
     idx++;
   }
 
+  if (bbox) {
+    const [minLon, minLat, maxLon, maxLat] = (bbox as string).split(',').map(Number);
+    query += ` AND ST_Within(t.location::geometry, ST_MakeEnvelope($${idx}, $${idx + 1}, $${idx + 2}, $${idx + 3}, 4326))`;
+    params.push(minLon, minLat, maxLon, maxLat);
+    idx += 4;
+  }
+
   query += ` ORDER BY t.dpi_score DESC LIMIT $${idx}`;
-  params.push(Math.min(Number(limit), 200));
+  params.push(limit);
 
   const result = await db.query(query, params);
   return res.json({ data: result.rows, count: result.rows.length });

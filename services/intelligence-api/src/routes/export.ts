@@ -1,11 +1,19 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { validate } from '@afrixplore/validation';
 import { db } from '../db/client';
 
 const router = Router();
 
+const ExportQuerySchema = z.object({
+  country: z.string().length(2).toUpperCase().optional(),
+  mineral: z.string().max(100).optional(),
+  format: z.enum(['json', 'geojson']).default('json'),
+});
+
 // GET /api/v1/export/clusters?country=ZM&format=geojson
-router.get('/clusters', async (req: Request, res: Response) => {
-  const { country, mineral, format = 'json' } = req.query;
+router.get('/clusters', validate(ExportQuerySchema, 'query'), async (req: Request, res: Response) => {
+  const { country, mineral, format } = req.query as unknown as z.infer<typeof ExportQuerySchema>;
 
   try {
     let query = `
@@ -23,14 +31,14 @@ router.get('/clusters', async (req: Request, res: Response) => {
       FROM anomaly_clusters
       WHERE status != 'closed'
     `;
-    const params: (string | undefined)[] = [];
+    const params: string[] = [];
 
     if (country) {
-      params.push(country as string);
+      params.push(country);
       query += ` AND country = $${params.length}`;
     }
     if (mineral) {
-      params.push(mineral as string);
+      params.push(mineral);
       query += ` AND dominant_mineral ILIKE $${params.length}`;
     }
 
@@ -60,7 +68,7 @@ router.get('/clusters', async (req: Request, res: Response) => {
 
     return res.json({ data: result.rows, count: result.rows.length });
   } catch (err) {
-    console.error('Export error:', err);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'intelligence-api', ts: new Date().toISOString(), msg: 'Export error', error: String(err) }) + '\n');
     return res.status(500).json({ error: 'Export failed' });
   }
 });
