@@ -13,7 +13,7 @@
     "@afrixplore/telemetry": "workspace:^",
     "@afrixplore/validation": "workspace:*",
     "@azure/identity": "^4.1.0",
-    "@azure/msal-node": "^2.9.2",
+    "@azure/msal-node": "^5.1.5",
     "@azure/service-bus": "^7.9.4",
     "@azure/storage-blob": "^12.23.0",
     "applicationinsights": "^2.9.5",
