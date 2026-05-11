@@ -10,6 +10,12 @@ import express from 'express';
 import { createHmac } from 'crypto';
 import ussdRouter from '../routes/ussd';
 
+// ── Mock shared packages (may not be built in CI test environment) ────────────
+jest.mock('@afrixplore/validation', () => ({
+  validate: () => (_req: any, _res: any, next: any) => next(),
+  AfricanPhoneSchema: { parse: (v: any) => v },
+}));
+
 // ── Mock DB ───────────────────────────────────────────────────────────────────
 const mockQuery = jest.fn();
 jest.mock('../db/client', () => ({ db: { query: (...args: any[]) => mockQuery(...args) } }));

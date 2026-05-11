@@ -4,8 +4,9 @@
  * 5-step mineral report via feature phone
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { validate, AfricanPhoneSchema } from '@afrixplore/validation';
 import { db } from '../db/client';
 import { ServiceBusClient } from '@azure/service-bus';
@@ -21,22 +22,132 @@ const USSDCallbackSchema = z.object({
 
 const router = Router();
 
-// ─── USSD SESSION STORE ───────────────────────────────────────────────────────
-interface USSDSession {
-  phoneNumber: string;
-  step: number;
-  data: {
-    mineralType?: string;
-    workingType?: string;
-    depthEstimate?: string;
-    volumeEstimate?: string;
-  };
-  language: string;
-  scoutId?: string;
-  createdAt: number;
+// ─── C8: AFRICA'S TALKING SIGNATURE VERIFICATION ─────────────────────────────
+// AT signs USSD callbacks with HMAC-SHA256 using the API key as the secret.
+// The signature is sent in the `X-AT-Signature` header as a hex digest of the
+// raw request body. In dev/test (no secret configured) the check is skipped.
+function atSignatureMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const secret = process.env.AT_USSD_SECRET;
+  if (!secret) {
+    // No secret configured — skip in local/dev
+    next();
+    return;
+  }
+
+  const signature = req.headers['x-at-signature'] as string | undefined;
+  if (!signature) {
+    res.status(401).type('text/plain').send('END Unauthorized');
+    return;
+  }
+
+  // Re-derive from the raw body (Express JSON middleware already parsed; we use
+  // the stringified body as AT does not send raw body separately)
+  const payload = JSON.stringify(req.body);
+  const expected = createHmac('sha256', secret).update(payload).digest('hex');
+
+  try {
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+      res.status(403).type('text/plain').send('END Forbidden');
+      return;
+    }
+  } catch {
+    res.status(403).type('text/plain').send('END Forbidden');
+    return;
+  }
+
+  next();
 }
 
-const sessions = new Map<string, USSDSession>();
+// ─── PHONE PREFIX → ISO-3166-1 ALPHA-2 COUNTRY ───────────────────────────────
+// Ordered longest-prefix-first so +27 doesn't match before +271, etc.
+const PHONE_COUNTRY_MAP: [string, string][] = [
+  ['+291', 'ER'], ['+267', 'BW'], ['+266', 'LS'], ['+265', 'MW'],
+  ['+264', 'NA'], ['+263', 'ZW'], ['+262', 'RE'], ['+261', 'MG'],
+  ['+260', 'ZM'], ['+258', 'MZ'], ['+257', 'BI'], ['+256', 'UG'],
+  ['+255', 'TZ'], ['+254', 'KE'], ['+253', 'DJ'], ['+252', 'SO'],
+  ['+251', 'ET'], ['+250', 'RW'], ['+249', 'SD'], ['+248', 'SC'],
+  ['+245', 'GW'], ['+244', 'AO'], ['+243', 'CD'], ['+242', 'CG'],
+  ['+241', 'GA'], ['+240', 'GQ'], ['+239', 'ST'], ['+238', 'CV'],
+  ['+237', 'CM'], ['+236', 'CF'], ['+235', 'TD'], ['+234', 'NG'],
+  ['+233', 'GH'], ['+232', 'SL'], ['+231', 'LR'], ['+230', 'MU'],
+  ['+229', 'BJ'], ['+228', 'TG'], ['+227', 'NE'], ['+226', 'BF'],
+  ['+225', 'CI'], ['+224', 'GN'], ['+223', 'ML'], ['+222', 'MR'],
+  ['+221', 'SN'], ['+220', 'GM'], ['+218', 'LY'], ['+216', 'TN'],
+  ['+213', 'DZ'], ['+212', 'MA'], ['+211', 'SS'], ['+20',  'EG'],
+  ['+27',  'ZA'],
+];
+
+function countryFromPhone(phone: string): string {
+  for (const [prefix, iso] of PHONE_COUNTRY_MAP) {
+    if (phone.startsWith(prefix)) return iso;
+  }
+  return 'ZZ'; // unknown
+}
+
+// ─── C9: DB-BACKED USSD SESSIONS ─────────────────────────────────────────────
+interface USSDSession {
+  phoneNumber: string;
+  language: string;
+  scoutId?: string;
+  mineralType?: string;
+  workingType?: string;
+  depthEstimate?: string;
+  volumeEstimate?: string;
+}
+
+async function getSession(sessionId: string): Promise<USSDSession | null> {
+  const result = await db.query(
+    `SELECT phone_number, language, scout_id, mineral_type, working_type,
+            depth_estimate, volume_estimate
+     FROM ussd_sessions WHERE session_id = $1`,
+    [sessionId]
+  );
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    phoneNumber: row.phone_number,
+    language: row.language,
+    scoutId: row.scout_id ?? undefined,
+    mineralType: row.mineral_type ?? undefined,
+    workingType: row.working_type ?? undefined,
+    depthEstimate: row.depth_estimate ?? undefined,
+    volumeEstimate: row.volume_estimate ?? undefined,
+  };
+}
+
+async function upsertSession(sessionId: string, session: USSDSession): Promise<void> {
+  await db.query(
+    `INSERT INTO ussd_sessions (session_id, phone_number, language, scout_id,
+       mineral_type, working_type, depth_estimate, volume_estimate, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+     ON CONFLICT (session_id) DO UPDATE SET
+       language       = EXCLUDED.language,
+       scout_id       = EXCLUDED.scout_id,
+       mineral_type   = EXCLUDED.mineral_type,
+       working_type   = EXCLUDED.working_type,
+       depth_estimate = EXCLUDED.depth_estimate,
+       volume_estimate = EXCLUDED.volume_estimate,
+       updated_at     = NOW()`,
+    [
+      sessionId,
+      session.phoneNumber,
+      session.language,
+      session.scoutId ?? null,
+      session.mineralType ?? null,
+      session.workingType ?? null,
+      session.depthEstimate ?? null,
+      session.volumeEstimate ?? null,
+    ]
+  );
+}
+
+async function deleteSession(sessionId: string): Promise<void> {
+  await db.query(`DELETE FROM ussd_sessions WHERE session_id = $1`, [sessionId]);
+  // Best-effort cleanup of expired sessions on each completion
+  await db.query(`SELECT cleanup_ussd_sessions()`).catch(() => {});
+}
 
 // ─── MENU STRINGS ─────────────────────────────────────────────────────────────
 const WELCOME =
@@ -91,9 +202,9 @@ const MINERAL_MAP: Record<string, string> = {
 };
 
 const WORKING_MAP: Record<string, string> = {
-  '1': 'alluvial_river', '2': 'open_pit',
-  '3': 'shallow_shaft',  '4': 'deep_shaft',
-  '5': 'tunnel',         '6': 'surface_pick',
+  '1': 'alluvial',      '2': 'open_pit',
+  '3': 'shallow_shaft', '4': 'deep_shaft',
+  '5': 'tunnel',        '6': 'surface_pick',
 };
 
 const DEPTH_MAP: Record<string, number> = {
@@ -105,140 +216,142 @@ const VOLUME_MAP: Record<string, string> = {
 };
 
 // ─── POST /api/v1/ussd/callback ───────────────────────────────────────────────
-router.post('/callback', validate(USSDCallbackSchema, 'body'), async (req: Request, res: Response) => {
-  const { sessionId, phoneNumber, text } = req.body as z.infer<typeof USSDCallbackSchema>;
+router.post(
+  '/callback',
+  atSignatureMiddleware,
+  validate(USSDCallbackSchema, 'body'),
+  async (req: Request, res: Response) => {
+    const { sessionId, phoneNumber, text } = req.body as z.infer<typeof USSDCallbackSchema>;
 
-  res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Type', 'text/plain');
 
-  try {
-    const inputs = text.split('*').filter(Boolean);
-    const stepCount = inputs.length;
+    try {
+      const inputs = text.split('*').filter(Boolean);
+      const stepCount = inputs.length;
 
-    let session = sessions.get(sessionId);
-    if (!session) {
-      session = {
-        phoneNumber,
-        step: 0,
-        data: {},
-        language: 'en',
-        createdAt: Date.now(),
-      };
+      let session = await getSession(sessionId);
+      if (!session) {
+        session = { phoneNumber, language: 'en' };
 
-      const scout = await db.query(
-        'SELECT id FROM scouts WHERE phone = $1 LIMIT 1',
-        [phoneNumber]
-      );
-      if (scout.rows.length > 0) {
-        session.scoutId = scout.rows[0].id as string;
+        const scout = await db.query(
+          'SELECT id FROM scouts WHERE phone = $1 LIMIT 1',
+          [phoneNumber]
+        );
+        if (scout.rows.length > 0) {
+          session.scoutId = scout.rows[0].id as string;
+        }
+
+        await upsertSession(sessionId, session);
       }
 
-      sessions.set(sessionId, session);
-    }
+      if (stepCount === 0) return res.send(WELCOME);
 
-    if (stepCount === 0) return res.send(WELCOME);
-
-    if (stepCount === 1) {
-      const lang = inputs[0];
-      session.language = lang === '2' ? 'fr' : lang === '3' ? 'sw' : 'en';
-      return res.send(MINERAL_MENU);
-    }
-
-    if (stepCount === 2) {
-      const mineral = MINERAL_MAP[inputs[1]];
-      if (!mineral) return res.send(ERROR_MSG);
-      if (mineral === 'uranium') return res.send(URANIUM_WARNING);
-      session.data.mineralType = mineral;
-      return res.send(WORKING_MENU);
-    }
-
-    if (stepCount === 3) {
-      const workingType = WORKING_MAP[inputs[2]];
-      if (!workingType) return res.send(ERROR_MSG);
-      session.data.workingType = workingType;
-      return res.send(DEPTH_MENU);
-    }
-
-    if (stepCount === 4) {
-      session.data.depthEstimate = String(DEPTH_MAP[inputs[3]] ?? 0);
-      return res.send(VOLUME_MENU);
-    }
-
-    if (stepCount === 5) {
-      session.data.volumeEstimate = VOLUME_MAP[inputs[4]] || 'small';
-      const mineral = session.data.mineralType || 'unknown';
-      const working = session.data.workingType || 'unknown';
-      return res.send(
-        `CON Confirm report:\n${mineral} via ${working}\n\n1. Submit\n2. Cancel`
-      );
-    }
-
-    if (stepCount === 6) {
-      if (inputs[5] !== '1') {
-        sessions.delete(sessionId);
-        return res.send(CANCELLED);
+      if (stepCount === 1) {
+        const lang = inputs[0];
+        session.language = lang === '2' ? 'fr' : lang === '3' ? 'sw' : 'en';
+        await upsertSession(sessionId, session);
+        return res.send(MINERAL_MENU);
       }
 
-      const reportId = uuidv4();
+      if (stepCount === 2) {
+        const mineral = MINERAL_MAP[inputs[1]];
+        if (!mineral) return res.send(ERROR_MSG);
+        if (mineral === 'uranium') {
+          await deleteSession(sessionId);
+          return res.send(URANIUM_WARNING);
+        }
+        session.mineralType = mineral;
+        await upsertSession(sessionId, session);
+        return res.send(WORKING_MENU);
+      }
 
-      await db.query(
-        `INSERT INTO reports (
-          id, scout_id, location, mineral_type, working_type,
-          depth_estimate_m, volume_estimate, location_source,
-          status, sync_status, device_id
-        ) VALUES (
-          $1, $2, ST_SetSRID(ST_MakePoint(0, 0), 4326),
-          $3, $4, $5, $6, 'cell_tower',
-          'submitted', 'synced', 'ussd'
-        )`,
-        [
-          reportId,
-          session.scoutId ?? null,
-          session.data.mineralType,
-          session.data.workingType,
-          parseFloat(session.data.depthEstimate ?? '0'),
-          session.data.volumeEstimate,
-        ]
-      );
+      if (stepCount === 3) {
+        const workingType = WORKING_MAP[inputs[2]];
+        if (!workingType) return res.send(ERROR_MSG);
+        session.workingType = workingType;
+        await upsertSession(sessionId, session);
+        return res.send(DEPTH_MENU);
+      }
 
-      const sbConn = process.env.SERVICE_BUS_CONNECTION_STRING;
-      if (sbConn) {
-        const sbClient = new ServiceBusClient(sbConn);
-        const sender = sbClient.createSender('reports-ingested');
-        await sender.sendMessages({
-          body: {
+      if (stepCount === 4) {
+        session.depthEstimate = String(DEPTH_MAP[inputs[3]] ?? 0);
+        await upsertSession(sessionId, session);
+        return res.send(VOLUME_MENU);
+      }
+
+      if (stepCount === 5) {
+        session.volumeEstimate = VOLUME_MAP[inputs[4]] || 'small';
+        await upsertSession(sessionId, session);
+        const mineral = session.mineralType || 'unknown';
+        const working = session.workingType || 'unknown';
+        return res.send(
+          `CON Confirm report:\n${mineral} via ${working}\n\n1. Submit\n2. Cancel`
+        );
+      }
+
+      if (stepCount === 6) {
+        if (inputs[5] !== '1') {
+          await deleteSession(sessionId);
+          return res.send(CANCELLED);
+        }
+
+        const reportId = uuidv4();
+        const country = countryFromPhone(phoneNumber);
+
+        await db.query(
+          `INSERT INTO reports (
+            id, scout_id, location, mineral_type, working_type,
+            depth_estimate_m, volume_estimate, location_source,
+            country, status, sync_status, device_id
+          ) VALUES (
+            $1, $2, ST_SetSRID(ST_MakePoint(0, 0), 4326),
+            $3, $4, $5, $6, 'cell_tower',
+            $7, 'pending', 'synced', 'ussd'
+          )`,
+          [
             reportId,
-            scoutId: session.scoutId,
-            mineral_type: session.data.mineralType,
-            source: 'ussd',
-            phoneNumber,
-            timestamp: new Date().toISOString(),
-          },
-          contentType: 'application/json',
-        });
-        await sender.close();
-        await sbClient.close();
+            session.scoutId ?? null,
+            session.mineralType,
+            session.workingType,
+            parseFloat(session.depthEstimate ?? '0'),
+            session.volumeEstimate,
+            country,
+          ]
+        );
+
+        const sbConn = process.env.SERVICE_BUS_CONNECTION_STRING;
+        if (sbConn) {
+          const sbClient = new ServiceBusClient(sbConn);
+          const sender = sbClient.createSender('reports-ingested');
+          await sender.sendMessages({
+            body: {
+              reportId,
+              scoutId: session.scoutId,
+              mineral_type: session.mineralType,
+              source: 'ussd',
+              phoneNumber,
+              timestamp: new Date().toISOString(),
+            },
+            contentType: 'application/json',
+          });
+          await sender.close();
+          await sbClient.close();
+        }
+
+        await deleteSession(sessionId);
+        return res.send(SUCCESS_MSG);
       }
 
-      sessions.delete(sessionId);
-      return res.send(SUCCESS_MSG);
+      return res.send(ERROR_MSG);
+    } catch (error) {
+      process.stderr.write(
+        JSON.stringify({ level: 'error', service: 'scout-api', ts: new Date().toISOString(), msg: 'USSD handler error', error: (error as Error).message }) + '\n'
+      );
+      await deleteSession(sessionId).catch(() => {});
+      return res.send(ERROR_MSG);
     }
-
-    return res.send(ERROR_MSG);
-  } catch (error) {
-    process.stderr.write(JSON.stringify({ level: 'error', service: 'scout-api', ts: new Date().toISOString(), msg: 'USSD handler error', error: (error as Error).message }) + '\n');
-    sessions.delete(sessionId);
-    return res.send(ERROR_MSG);
   }
-});
-
-// Clean up expired sessions every 5 minutes
-setInterval(() => {
-  const TIMEOUT = 5 * 60 * 1000;
-  const now = Date.now();
-  for (const [id, session] of sessions.entries()) {
-    if (now - session.createdAt > TIMEOUT) sessions.delete(id);
-  }
-}, 5 * 60 * 1000);
+);
 
 export { router as ussdRouter };
 
