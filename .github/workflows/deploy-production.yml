@@ -82,6 +82,31 @@ jobs:
             --mode Incremental \
             --no-prompt
 
+      # Service Bus subscriptions are immutable after creation — create them once
+      # via CLI with --if-not-exists semantics (az CLI ignores AlreadyExists).
+      - name: Ensure Service Bus subscriptions exist (idempotent)
+        run: |
+          NS="sb-afrixplore-${{ env.ENVIRONMENT }}"
+          RG="${{ env.RESOURCE_GROUP }}"
+          create_sub() {
+            local topic=$1 sub=$2 max=$3
+            az servicebus topic subscription create \
+              --namespace-name "$NS" --resource-group "$RG" \
+              --topic-name "$topic" --name "$sub" \
+              --dead-letter-on-message-expiration true \
+              --default-message-time-to-live P7D \
+              --lock-duration PT5M \
+              --max-delivery-count "$max" \
+              2>/dev/null || echo "  $topic/$sub already exists (skip)"
+          }
+          create_sub reports-ingested    geospatial-worker   5
+          create_sub reports-ingested    ai-pipeline         5
+          create_sub reports-ingested    notification-service 3
+          create_sub anomaly-detected    notification-service 5
+          create_sub payment-triggered   payment-service     3
+          create_sub payment-triggered   notification-service 3
+          create_sub mineral-assessed    intelligence-dpi    5
+
       # Role assignments require User Access Administrator on the Key Vault scope.
       # If the SP already has the role, this is a no-op; errors are suppressed.
       - name: Grant Container Apps access to Key Vault (idempotent)

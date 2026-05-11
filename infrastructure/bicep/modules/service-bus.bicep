@@ -38,86 +38,10 @@ resource topicResources 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-previ
   }
 }]
 
-// ── reports-ingested subscriptions ──────────────────────────────────────────
-resource geoWorkerSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[0]
-  name: 'geospatial-worker'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 5
-  }
-}
-
-resource aiPipelineSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[0]
-  name: 'ai-pipeline'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 5
-  }
-}
-
-resource notificationReportsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[0]
-  name: 'notification-service'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 3
-  }
-}
-
-// ── anomaly-detected subscriptions ──────────────────────────────────────────
-resource notificationAnomalySubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[1]
-  name: 'notification-service'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 5
-  }
-}
-
-// ── payment-triggered subscriptions ─────────────────────────────────────────
-resource paymentSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[2]
-  name: 'payment-service'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 3
-  }
-}
-
-resource notificationPaymentSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[2]
-  name: 'notification-service'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 3
-  }
-}
-
-// ── mineral-assessed subscriptions ──────────────────────────────────────────
-resource intelligenceDpiSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
-  parent: topicResources[3]
-  name: 'intelligence-dpi'
-  properties: {
-    deadLetteringOnMessageExpiration: true
-    defaultMessageTimeToLive: 'P7D'
-    lockDuration: 'PT5M'
-    maxDeliveryCount: 5
-  }
-}
+// NOTE: Topic subscriptions are intentionally excluded from Bicep.
+// Azure does not allow updating immutable subscription properties (requiresSession,
+// requiresDuplicateDetection) once created. Subscriptions are created once via
+// the ensure-sb-subscriptions step in the deploy workflow and left untouched.
 
 output name string = serviceBusNamespace.name
 output namespaceFQDN string = '${serviceBusNamespace.name}.servicebus.windows.net'
