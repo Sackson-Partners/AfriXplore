@@ -37,13 +37,6 @@ var services = [
   { name: 'geo-worker',         port: 8000, minReplicas: 0, maxReplicas: 3,  cpu: '0.5',  memory: '1.0Gi', externalIngress: false }
 ]
 
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
-  name: keyVaultName
-}
-
-// Key Vault Secrets User role
-var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-
 resource containerApps 'Microsoft.App/containerApps@2024-03-01' = [for svc in services: {
   name: 'ca-${svc.name}-${environment}'
   location: location
@@ -100,16 +93,9 @@ resource containerApps 'Microsoft.App/containerApps@2024-03-01' = [for svc in se
   }
 }]
 
-// Grant each Container App's SystemAssigned identity access to Key Vault secrets
-resource kvRoleAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for (svc, i) in services: {
-  name: guid(keyVault.id, containerApps[i].id, kvSecretsUserRoleId)
-  scope: keyVault
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
-    principalId: containerApps[i].identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}]
+// NOTE: Key Vault role assignments (Key Vault Secrets User) are applied via
+// the deploy workflow CLI step — not in Bicep — to avoid requiring
+// Microsoft.Authorization/roleAssignments/write on the Bicep SP.
 
 output environmentId string = containerAppsEnv.id
 output environmentName string = containerAppsEnv.name

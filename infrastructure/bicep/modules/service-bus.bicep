@@ -34,10 +34,7 @@ resource topicResources 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-previ
   properties: {
     defaultMessageTimeToLive: 'P14D'
     enableBatchedOperations: true
-    enablePartitioning: false
     maxSizeInMegabytes: 1024
-    requiresDuplicateDetection: false
-    supportOrdering: false
   }
 }]
 

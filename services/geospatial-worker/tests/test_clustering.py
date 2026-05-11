@@ -11,10 +11,8 @@ Tests cover:
 """
 
 import os
-import json
-import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -49,7 +47,7 @@ class TestDbscanLogic:
 
         unique = set(labels) - {-1}
         assert len(unique) == 1
-        assert all(l == 0 for l in labels)
+        assert all(label == 0 for label in labels)
 
     def test_two_distant_groups_form_two_clusters(self):
         """Points 500 km apart should produce two distinct clusters."""
@@ -160,7 +158,6 @@ class TestClusterIdWriteback:
 class TestPublishClusterEvents:
     def test_skips_when_no_connection_string(self):
         """publish_cluster_events should be a no-op when SB conn string is empty."""
-        import importlib
         import sys
 
         # Patch env before import

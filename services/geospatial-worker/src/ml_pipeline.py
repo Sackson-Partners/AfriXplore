@@ -49,7 +49,6 @@ def get_ground_truth_samples(conn, since_days: int = 30) -> list:
 
 
 def download_training_images(samples: list, output_dir: Path) -> dict:
-    blob_client = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
     mineral_images = {}
     output_dir.mkdir(parents=True, exist_ok=True)
 
