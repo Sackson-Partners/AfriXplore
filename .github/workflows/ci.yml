@@ -71,10 +71,10 @@ jobs:
         run: pnpm --filter "@afrixplore/telemetry" --filter "@afrixplore/config" --filter "@afrixplore/health" --filter "@afrixplore/auth" --filter "@afrixplore/types" run build
 
       - name: TypeScript — all services and apps
-        run: pnpm run typecheck --recursive --if-present
+        run: pnpm --recursive --if-present run typecheck
 
       - name: ESLint — all services and apps
-        run: pnpm run lint --recursive --if-present
+        run: pnpm --recursive --if-present run lint
 
       - name: Check for console.log in services
         run: |
