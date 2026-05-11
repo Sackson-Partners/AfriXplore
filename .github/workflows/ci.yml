@@ -73,8 +73,8 @@ jobs:
       - name: TypeScript — all services and apps
         run: pnpm --recursive --if-present run typecheck
 
-      - name: ESLint — all services and apps
-        run: pnpm --recursive --if-present run lint
+      - name: ESLint — apps (Next.js; services use tsc + grep checks below)
+        run: pnpm --filter "platform-web" --filter "admin-web" --if-present run lint
 
       - name: Check for console.log in services
         run: |
