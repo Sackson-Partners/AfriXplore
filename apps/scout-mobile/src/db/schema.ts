@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 3,
+  version: 4,
   tables: [
     tableSchema({
       name: 'reports',
@@ -17,6 +17,8 @@ export const schema = appSchema({
         { name: 'latitude', type: 'number' },
         { name: 'longitude', type: 'number' },
         { name: 'location_accuracy_m', type: 'number', isOptional: true },
+        { name: 'country', type: 'string', isOptional: true },
+        { name: 'district', type: 'string', isOptional: true },
         { name: 'photos', type: 'string' },
         { name: 'voice_note_path', type: 'string', isOptional: true },
         { name: 'voice_note_transcript', type: 'string', isOptional: true },

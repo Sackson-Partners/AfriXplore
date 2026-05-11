@@ -1,7 +1,7 @@
 import database from '../db/database';
 import { Report } from '../db/models/Report';
+import { SyncQueueItem } from '../db/models/SyncQueueItem';
 import { apiClient } from './apiClient';
-import * as FileSystem from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 
 const MAX_RETRIES = 3;
@@ -27,8 +27,7 @@ class SyncService {
     try {
       await this.syncPendingReports(token);
       await this.syncProfileFromServer(token);
-    } catch (error) {
-      console.error('Sync error:', error);
+      await this.cleanupSyncQueue();
     } finally {
       this.isSyncing = false;
     }
@@ -36,11 +35,8 @@ class SyncService {
 
   private async syncPendingReports(token: string) {
     const reportsCollection = database.get<Report>('reports');
-    const pendingReports = await reportsCollection
-      .query()
-      .fetch();
-
-    const pending = pendingReports.filter((r) => r.syncStatus === 'pending');
+    const allReports = await reportsCollection.query().fetch();
+    const pending = allReports.filter((r) => r.syncStatus === 'pending');
 
     for (const report of pending) {
       if (report.retryCount >= MAX_RETRIES) {
@@ -50,23 +46,37 @@ class SyncService {
         continue;
       }
 
+      // Step 1: upload photos. Failures here are always counted against retries
+      // because a persistent photo upload failure needs to surface to the scout
+      // rather than silently looping forever.
+      let photoUris: string[];
       try {
-        const uploadedPhotos = await this.uploadPhotos(report, token);
+        photoUris = await this.uploadPhotos(report, token);
+      } catch (photoErr) {
+        await database.write(async () => {
+          await report.update((r) => {
+            r.retryCount = r.retryCount + 1;
+            r.syncStatus = r.retryCount >= MAX_RETRIES ? 'photo_failed' : 'pending';
+          });
+        });
+        continue;
+      }
 
+      // Step 2: submit report to the API.
+      try {
         const response = await apiClient.post(
-          '/scout/v1/reports',
+          '/api/v1/reports',
           {
             latitude: report.latitude,
             longitude: report.longitude,
             location_accuracy_m: report.locationAccuracyM,
             mineral_type: report.mineralType,
-            mineral_type_secondary: report.mineralTypeSecondary,
             working_type: report.workingType,
             depth_estimate_m: report.depthEstimateM,
             volume_estimate: report.volumeEstimate,
-            host_rock: report.hostRock,
-            alteration_colour: report.alterationColour,
-            photos: uploadedPhotos,
+            photo_uris: photoUris,
+            country: report.country ?? 'ZZ',
+            district: report.district ?? undefined,
             offline_created_at: new Date(report.createdAtLocal).toISOString(),
           },
           token
@@ -81,10 +91,17 @@ class SyncService {
           });
         });
 
-      } catch (error) {
+      } catch (err) {
+        // Only count retries for server-side rejections (4xx). Network errors
+        // and 5xx are transient — don't penalise the report for them.
+        const status = (err as any)?.status ?? (err as any)?.response?.status;
+        const isClientError = typeof status === 'number' && status >= 400 && status < 500;
+
         await database.write(async () => {
           await report.update((r) => {
-            r.retryCount = r.retryCount + 1;
+            if (isClientError) {
+              r.retryCount = r.retryCount + 1;
+            }
             r.syncStatus = r.retryCount >= MAX_RETRIES ? 'failed' : 'pending';
           });
         });
@@ -92,36 +109,61 @@ class SyncService {
     }
   }
 
-  private async uploadPhotos(
-    report: Report,
-    token: string
-  ): Promise<Array<{ url: string; blob_path: string }>> {
-    const uploaded = [];
+  private async uploadPhotos(report: Report, token: string): Promise<string[]> {
+    const uploaded: string[] = [];
 
     for (const photo of report.photos) {
       if (photo.blobPath) {
-        uploaded.push({ url: photo.uri, blob_path: photo.blobPath });
+        uploaded.push(photo.uri);
         continue;
       }
 
-      const { upload_url, blob_path, cdn_url } = await apiClient.post(
-        '/scout/v1/upload/presign',
-        { filename: `report_${Date.now()}.jpg`, content_type: 'image/jpeg' },
-        token
-      );
-
-      await FileSystem.uploadAsync(upload_url, photo.uri, {
-        httpMethod: 'PUT',
-        headers: {
-          'x-ms-blob-type': 'BlockBlob',
-          'Content-Type': 'image/jpeg',
-        },
-      });
-
-      uploaded.push({ url: cdn_url, blob_path });
+      const result = await apiClient.uploadFile('/scout/v1/upload/photo', photo.uri, token);
+      uploaded.push(result.url);
     }
 
     return uploaded;
+  }
+
+  /** Delete sync_queue entries older than 30 days. The table has no status
+   *  column, so age is the only reliable signal that an item is done or
+   *  permanently unrecoverable. */
+  private async cleanupSyncQueue(): Promise<void> {
+    try {
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const all = await (database.get<SyncQueueItem>('sync_queue') as any).query().fetch() as SyncQueueItem[];
+      const stale = all.filter((item) => item.createdAt < cutoff);
+      if (stale.length === 0) return;
+      await database.write(async () => {
+        for (const item of stale) {
+          await item.destroyPermanently();
+        }
+      });
+    } catch {
+      // Cleanup is best-effort — don't break the sync loop
+    }
+  }
+
+  /** Reset photo_failed reports to pending and immediately retry sync. */
+  async retryPhotoFailed(): Promise<void> {
+    const reportsCollection = database.get<Report>('reports');
+    const failed = await reportsCollection
+      .query()
+      .fetch()
+      .then((all) => all.filter((r) => r.syncStatus === 'photo_failed'));
+
+    if (failed.length === 0) return;
+
+    await database.write(async () => {
+      for (const report of failed) {
+        await report.update((r) => {
+          r.syncStatus = 'pending';
+          r.retryCount = 0;
+        });
+      }
+    });
+
+    await this.sync();
   }
 
   private async syncProfileFromServer(token: string) {
@@ -141,8 +183,8 @@ class SyncService {
           });
         }
       });
-    } catch (error) {
-      console.warn('Profile sync failed:', error);
+    } catch {
+      // Profile sync is best-effort — don't break the sync loop
     }
   }
 }

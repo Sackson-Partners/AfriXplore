@@ -15,6 +15,8 @@ export class Report extends Model {
   @field('latitude') latitude!: number;
   @field('longitude') longitude!: number;
   @field('location_accuracy_m') locationAccuracyM!: number | null;
+  @text('country') country!: string | null;
+  @text('district') district!: string | null;
   @json('photos', (raw) => (typeof raw === 'string' ? JSON.parse(raw) : raw))
   photos!: Array<{ uri: string; blobPath?: string; caption?: string }>;
   @text('voice_note_path') voiceNotePath!: string | null;

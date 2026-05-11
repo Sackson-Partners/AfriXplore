@@ -34,4 +34,50 @@ router.get('/', validate(MineralSystemsQuerySchema, 'query'), async (req: Reques
   return res.json({ data: result.rows, count: result.rows.length });
 });
 
+// GET /api/v1/mineral-systems/:id/clusters
+// Returns anomaly clusters whose centroid falls within the mineral system boundary.
+// Used by the platform-web map overlay.
+router.get('/:id/clusters', async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  // Verify mineral system exists
+  const msResult = await db.query(
+    `SELECT id, name FROM mineral_systems WHERE id = $1`,
+    [id]
+  );
+  if (msResult.rows.length === 0) {
+    return res.status(404).json({
+      type: 'https://afrixplore.io/errors/not-found',
+      title: 'Mineral System Not Found',
+      status: 404,
+    });
+  }
+
+  const clustersResult = await db.query(
+    `SELECT
+      ac.id,
+      ac.dominant_mineral,
+      ac.report_count,
+      ac.dpi_score,
+      ac.dispatch_priority,
+      ac.radius_km,
+      ac.cluster_key,
+      ac.last_updated,
+      ST_AsGeoJSON(ac.centroid) AS centroid_geojson,
+      ST_AsGeoJSON(ac.convex_hull) AS hull_geojson
+    FROM anomaly_clusters ac
+    JOIN mineral_systems ms ON ms.id = $1
+    WHERE ST_Within(ac.centroid::geometry, ms.boundary::geometry)
+    ORDER BY ac.dpi_score DESC`,
+    [id]
+  );
+
+  return res.json({
+    mineral_system_id: id,
+    mineral_system_name: msResult.rows[0].name,
+    data: clustersResult.rows,
+    count: clustersResult.rows.length,
+  });
+});
+
 export { router as mineralSystemsRouter };

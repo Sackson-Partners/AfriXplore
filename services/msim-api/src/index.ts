@@ -17,13 +17,13 @@ const app = express();
 const PORT = process.env.PORT || 3004;
 
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || 'https://platform.afrixplore.io' }));
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || 'https://platform.afrixplore.io' }));
 app.use(express.json());
 app.use('/health', healthRouter);
 if (process.env.NODE_ENV !== 'production') {
   app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { customSiteTitle: 'AfriXplore MSIM API Docs' }));
+  app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 }
-app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 app.use('/api/v1', authMiddleware, generalLimiter);
 app.use('/api/v1/mineral-systems', mineralSystemsRouter);
 

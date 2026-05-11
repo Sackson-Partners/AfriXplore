@@ -41,8 +41,6 @@ export async function sendFCMPush(
       },
     },
   });
-
-  console.log('FCM push sent');
 }
 
 export async function sendFCMToMultiple(

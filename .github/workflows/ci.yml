@@ -223,6 +223,7 @@ jobs:
           - payment-service
           - ai-inference
           - notification-service
+          - geospatial-worker
     steps:
       - uses: actions/checkout@v4
 
@@ -275,3 +276,44 @@ jobs:
           name: playwright-report
           path: apps/platform-web/playwright-report/
           retention-days: 7
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 8: Python CI — geospatial-worker
+  # ──────────────────────────────────────────────────────────
+  python-geospatial:
+    name: Python CI — geospatial-worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/geospatial-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: services/geospatial-worker/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check . --select=E,F,W --ignore=E501
+
+      - name: Type check with mypy
+        run: |
+          pip install mypy types-requests
+          mypy src/clustering.py --ignore-missing-imports --no-strict-optional
+
+      - name: Run tests
+        run: |
+          if [ -d "tests" ]; then
+            pip install pytest pytest-asyncio
+            pytest tests/ -v --tb=short
+          else
+            echo "No tests directory found — skipping"
+            echo "::warning::geospatial-worker has no tests yet"
+          fi

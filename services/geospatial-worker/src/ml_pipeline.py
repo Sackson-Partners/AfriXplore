@@ -33,16 +33,16 @@ def get_ground_truth_samples(conn, since_days: int = 30) -> list:
         cur.execute("""
             SELECT
                 r.id,
-                r.image_urls,
+                r.photo_uris,
                 r.mineral_type as ground_truth_mineral,
                 ma.predictions as ai_predictions,
                 ma.confidence as previous_confidence
             FROM reports r
             JOIN mineral_assessments ma ON ma.report_id = r.id
-            WHERE r.status = 'processed'
+            WHERE r.status = 'validated'
               AND r.created_at > NOW() - INTERVAL '%s days'
-              AND r.image_urls IS NOT NULL
-              AND array_length(r.image_urls, 1) > 0
+              AND r.photo_uris IS NOT NULL
+              AND array_length(r.photo_uris, 1) > 0
             ORDER BY r.created_at DESC
         """, (since_days,))
         return cur.fetchall()
@@ -55,8 +55,8 @@ def download_training_images(samples: list, output_dir: Path) -> dict:
 
     for sample in samples:
         mineral = sample['ground_truth_mineral']
-        # image_urls is TEXT[] — plain HTTPS URLs, not JSON objects
-        image_urls = sample.get('image_urls') or []
+        # photo_uris is TEXT[] — plain HTTPS URLs, not JSON objects
+        image_urls = sample.get('photo_uris') or []
         if not image_urls:
             continue
         if mineral not in mineral_images:

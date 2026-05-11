@@ -15,7 +15,22 @@ function getSigningKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback) 
   });
 }
 
+// Startup guard — kills the process immediately if bypass is enabled in production.
+// This runs once at module import time, before any request is served.
+if (process.env.DEV_BYPASS_AUTH === 'true' && process.env.NODE_ENV === 'production') {
+  process.stderr.write(JSON.stringify({ level: 'error', service: 'msim-api', ts: new Date().toISOString(), msg: 'FATAL: DEV_BYPASS_AUTH=true is set in a production environment. Refusing to start.' }) + '\n');
+  process.exit(1);
+}
+
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Dev bypass — only active when DEV_BYPASS_AUTH=true (blocked in production above)
+  if (process.env.DEV_BYPASS_AUTH === 'true') {
+    (req as any).user = { sub: 'dev-subscriber', role: 'subscriber' };
+    (req as any).userId = 'dev-subscriber';
+    (req as any).userRole = 'subscriber';
+    return next();
+  }
+
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import * as Location from 'expo-location';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Audio } from 'expo-av';
 import database from '../../../db/database';
+import { syncService } from '../../../services/syncService';
 
 const MINERALS = [
   { id: 'copper', label: 'Copper', icon: '🔴' },
@@ -34,7 +35,7 @@ const MINERALS = [
 ];
 
 const WORKING_TYPES = [
-  { id: 'alluvial_river', label: 'River/Alluvial', icon: '🏞️' },
+  { id: 'alluvial', label: 'River/Alluvial', icon: '🏞️' },
   { id: 'open_pit', label: 'Open Pit', icon: '⛏️' },
   { id: 'shallow_shaft', label: 'Shallow Shaft (<10m)', icon: '🕳️' },
   { id: 'deep_shaft', label: 'Deep Shaft', icon: '⬇️' },
@@ -57,6 +58,8 @@ export default function NewReportScreen() {
     longitude: number;
     accuracy: number;
   } | null>(null);
+  const [country, setCountry] = useState<string | null>(null);
+  const [district, setDistrict] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingUri, setRecordingUri] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -75,6 +78,18 @@ export default function NewReportScreen() {
         longitude: loc.coords.longitude,
         accuracy: loc.coords.accuracy || 100,
       });
+      try {
+        const places = await Location.reverseGeocodeAsync({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        if (places.length > 0) {
+          setCountry(places[0].isoCountryCode ?? null);
+          setDistrict(places[0].subregion ?? places[0].region ?? null);
+        }
+      } catch {
+        // reverse geocode is best-effort
+      }
     } catch {
       Alert.alert('GPS Error', 'Could not get location. Please try again.');
     } finally {
@@ -139,6 +154,8 @@ export default function NewReportScreen() {
           report.latitude = location.latitude;
           report.longitude = location.longitude;
           report.locationAccuracyM = location.accuracy;
+          report.country = country;
+          report.district = district;
           report.photos = photos.map((uri) => ({ uri }));
           report.voiceNotePath = recordingUri;
           report.status = 'draft';
@@ -148,6 +165,9 @@ export default function NewReportScreen() {
         });
       });
 
+      // Attempt immediate sync without blocking the success alert
+      syncService.sync().catch(() => {});
+
       Alert.alert(
         '✅ Report Saved',
         'Your report has been saved. It will sync when you have internet.',
@@ -155,7 +175,8 @@ export default function NewReportScreen() {
           { text: 'View Reports', onPress: () => router.replace('/(tabs)/reports') },
           { text: 'New Report', onPress: () => {
             setStep(1); setPhotos([]); setSelectedMineral('');
-            setWorkingType(''); setDepthM(0); setLocation(null); setRecordingUri(null);
+            setWorkingType(''); setDepthM(0); setLocation(null);
+            setCountry(null); setDistrict(null); setRecordingUri(null);
           }},
         ]
       );
@@ -164,7 +185,7 @@ export default function NewReportScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [location, selectedMineral, photos, workingType, depthM, volumeEstimate, hostRock, recordingUri]);
+  }, [location, selectedMineral, photos, workingType, depthM, volumeEstimate, hostRock, recordingUri, country, district]);
 
   return (
     <View style={styles.container}>

@@ -11,8 +11,11 @@ import { clustersRouter } from './routes/clusters';
 import { targetsRouter } from './routes/targets';
 import { exportRouter } from './routes/export';
 import { streamRouter } from './routes/stream';
+import { webhookRouter } from './routes/webhook';
 import { db } from './db/client';
 import { authMiddleware } from './middleware/auth';
+import { subscriberMiddleware } from './middleware/subscriber';
+import { mineralAssessedConsumer } from './consumers/mineralAssessedConsumer';
 import { generalLimiter, exportLimiter } from './middleware/rateLimiter';
 
 const SERVICE_NAME = 'intelligence-api';
@@ -28,8 +31,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || 'https://platform.afrixplore.io' }));
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || 'https://platform.afrixplore.io' }));
 app.use(compression());
+
+// Stripe webhook must receive raw body — mount before express.json()
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }), webhookRouter);
+
 app.use(express.json());
 
 app.get('/health', async (_req, res) => {
@@ -47,15 +54,29 @@ if (process.env.NODE_ENV !== 'production') {
     customSiteTitle: 'AfriXplore Intelligence API Docs',
     swaggerOptions: { persistAuthorization: true },
   }));
+  app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 }
-app.get('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 
-app.use('/api/v1', authMiddleware, generalLimiter);
+app.use('/api/v1', authMiddleware, subscriberMiddleware, generalLimiter);
 app.use('/api/v1/clusters',  clustersRouter);
 app.use('/api/v1/targets',   targetsRouter);
 app.use('/api/v1/export',    exportLimiter, exportRouter);
 app.use('/api/v1/stream',    streamRouter);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   log.info(`AfriXplore Intelligence API on port ${PORT}`);
 });
+
+// Start DPI scoring consumer (only when SERVICE_BUS_CONNECTION_STRING is set)
+if (process.env.SERVICE_BUS_CONNECTION_STRING) {
+  mineralAssessedConsumer.start().catch((err) => {
+    log.error('Failed to start MineralAssessedConsumer', { error: String(err) });
+  });
+
+  const gracefulShutdown = async () => {
+    await mineralAssessedConsumer.stop();
+    server.close(() => process.exit(0));
+  };
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT',  gracefulShutdown);
+}

@@ -11,27 +11,41 @@ const log = {
 
 interface AnomalyMessage {
   clusterId: string;
-  dpiScore: number;
   dominantMineral: string;
-  requiresDispatch: boolean;
+  reportCount: number;
   timestamp: string;
 }
 
 export async function sendAnomalyAlert(message: ServiceBusReceivedMessage): Promise<void> {
   const body = message.body as AnomalyMessage;
 
+  // Fetch authoritative DPI score and dispatch priority from DB —
+  // clustering.py no longer computes these; intelligence-api owns them.
+  const clusterRow = await db.query(
+    `SELECT dpi_score, dispatch_priority FROM anomaly_clusters WHERE id = $1`,
+    [body.clusterId]
+  );
+
+  if (clusterRow.rows.length === 0) {
+    log.warn('anomaly-detected message references unknown cluster — skipping', { clusterId: body.clusterId });
+    return;
+  }
+
+  const dpiScore: number = clusterRow.rows[0].dpi_score ?? 0;
+  const requiresDispatch: boolean = clusterRow.rows[0].dispatch_priority === true;
+
   log.info('Processing anomaly alert', {
     clusterId: body.clusterId,
-    dpiScore: body.dpiScore,
+    dpiScore,
     dominantMineral: body.dominantMineral,
   });
 
   // Real-time dashboard push via SignalR
   await sendSignalRBroadcast('dashboard-hub', 'AnomalyDetected', {
     clusterId: body.clusterId,
-    dpiScore: body.dpiScore,
+    dpiScore,
     dominantMineral: body.dominantMineral,
-    requiresDispatch: body.requiresDispatch,
+    requiresDispatch,
     timestamp: new Date().toISOString(),
   });
 
@@ -45,7 +59,7 @@ export async function sendAnomalyAlert(message: ServiceBusReceivedMessage): Prom
          (SELECT centroid::geometry FROM anomaly_clusters WHERE id = $2),
          licensed_territories::geometry
        )`,
-    [body.dpiScore, body.clusterId]
+    [dpiScore, body.clusterId]
   );
 
   for (const sub of subscribers.rows) {
@@ -53,9 +67,9 @@ export async function sendAnomalyAlert(message: ServiceBusReceivedMessage): Prom
       deliverWebhook(sub.webhook_url, {
         event: 'anomaly.detected',
         cluster_id: body.clusterId,
-        dpi_score: body.dpiScore,
+        dpi_score: dpiScore,
         dominant_mineral: body.dominantMineral,
-        requires_dispatch: body.requiresDispatch,
+        requires_dispatch: requiresDispatch,
         timestamp: new Date().toISOString(),
       }).catch((err: Error) =>
         log.warn('Webhook delivery failed', { subscriberId: sub.id, error: err.message })
@@ -64,7 +78,7 @@ export async function sendAnomalyAlert(message: ServiceBusReceivedMessage): Prom
   }
 
   // SMS dispatch to available geologists when immediate field visit is required
-  if (body.requiresDispatch) {
+  if (requiresDispatch) {
     const geologists = await db.query(
       `SELECT phone, full_name
        FROM field_geologists
@@ -76,7 +90,7 @@ export async function sendAnomalyAlert(message: ServiceBusReceivedMessage): Prom
       await sendSMS(
         geo.phone,
         `AfriXplore DISPATCH\n` +
-        `DPI: ${body.dpiScore}/100\n` +
+        `DPI: ${dpiScore}/100\n` +
         `Mineral: ${body.dominantMineral.toUpperCase()}\n` +
         `Cluster: ${body.clusterId.slice(0, 8)}\n` +
         `48hr target. Check Field App.`

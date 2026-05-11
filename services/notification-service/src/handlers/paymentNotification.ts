@@ -1,5 +1,6 @@
 import { ServiceBusReceivedMessage } from '@azure/service-bus';
 import { sendSMS } from '../services/smsService';
+import { sendFCMPush } from '../services/fcmService';
 import { db } from '../db/client';
 
 const log = {
@@ -8,6 +9,20 @@ const log = {
 };
 
 interface PaymentMessage {
+  event: string;
+  scoutId: string;
+  paymentId: string;
+  amount: number;
+  provider: string;
+  reference?: string;
+  // Normalised fields populated below
+  currency?: string;
+  type?: 'finder_fee' | 'bonus' | 'adjustment';
+  status?: 'completed' | 'failed';
+  providerReference?: string;
+}
+
+interface NormalisedPaymentMessage {
   scoutId: string;
   paymentId: string;
   amount: number;
@@ -17,8 +32,20 @@ interface PaymentMessage {
   providerReference?: string;
 }
 
+function normalise(body: PaymentMessage): NormalisedPaymentMessage {
+  return {
+    scoutId: body.scoutId,
+    paymentId: body.paymentId,
+    amount: body.amount,
+    currency: body.currency ?? 'USD',
+    type: body.type ?? 'finder_fee',
+    status: body.event === 'disbursed' ? 'completed' : (body.status ?? 'failed'),
+    providerReference: body.reference ?? body.providerReference,
+  };
+}
+
 export async function sendPaymentNotification(message: ServiceBusReceivedMessage): Promise<void> {
-  const body = message.body as PaymentMessage;
+  const body = normalise(message.body as PaymentMessage);
 
   log.info('Processing payment notification', {
     scoutId: body.scoutId,
@@ -27,9 +54,9 @@ export async function sendPaymentNotification(message: ServiceBusReceivedMessage
     status: body.status,
   });
 
-  // Look up scout's phone number for SMS
+  // Look up scout's contact details
   const result = await db.query(
-    `SELECT phone, full_name FROM scouts WHERE id = $1`,
+    `SELECT phone, full_name, fcm_token FROM scouts WHERE id = $1`,
     [body.scoutId]
   );
 
@@ -50,9 +77,19 @@ export async function sendPaymentNotification(message: ServiceBusReceivedMessage
     : buildFailureSMS(body, scout.full_name);
 
   await sendSMS(scout.phone, smsText);
+
+  if (scout.fcm_token) {
+    const pushTitle = body.status === 'completed' ? 'Payment Sent!' : 'Payment Failed';
+    await sendFCMPush(scout.fcm_token, pushTitle, smsText, {
+      paymentId: body.paymentId,
+      type: body.type,
+    }).catch((err: Error) =>
+      log.warn('FCM push failed for payment notification', { scoutId: body.scoutId, error: err.message })
+    );
+  }
 }
 
-function buildSuccessSMS(body: PaymentMessage, fullName: string): string {
+function buildSuccessSMS(body: NormalisedPaymentMessage, fullName: string): string {
   const firstName = fullName.split(' ')[0];
   return (
     `AfriXplore Payment\n` +
@@ -62,7 +99,7 @@ function buildSuccessSMS(body: PaymentMessage, fullName: string): string {
   ).slice(0, 160);
 }
 
-function buildFailureSMS(body: PaymentMessage, fullName: string): string {
+function buildFailureSMS(body: NormalisedPaymentMessage, fullName: string): string {
   const firstName = fullName.split(' ')[0];
   return (
     `AfriXplore Payment\n` +

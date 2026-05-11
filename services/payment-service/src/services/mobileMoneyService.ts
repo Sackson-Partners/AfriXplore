@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { db } from '../db/client';
 import { MTN_MOMO_BASE_URL, MTN_MOMO_TARGET_ENV } from '../config/momo';
+import { getUsdToRate } from './fxService';
 
 export type MobileMoneyProvider =
   | 'mpesa_kenya'
@@ -9,7 +10,21 @@ export type MobileMoneyProvider =
   | 'mtn_zambia'
   | 'airtel_zambia'
   | 'flutterwave_drc'
-  | 'flutterwave_zimbabwe';
+  | 'flutterwave_zimbabwe'
+  | 'wave_senegal'         // Wave — Senegal, Côte d'Ivoire, Mali, Burkina Faso, Guinea, Cameroon, Uganda
+  | 'wave_cotedivoire'
+  | 'orange_money_senegal' // Orange Money — Senegal, Côte d'Ivoire, Mali, Cameroon, Guinea, DRC, Madagascar
+  | 'orange_money_cotedivoire'
+  | 'orange_money_mali'
+  | 'orange_money_cameroon'
+  | 'opay_nigeria'         // OPay — Nigeria, Egypt
+  | 'opay_egypt'
+  | 'mtn_uganda'           // MTN — fill coverage gaps
+  | 'mtn_cameroon'
+  | 'mtn_rwanda'
+  | 'airtel_uganda'
+  | 'airtel_tanzania'
+  | 'airtel_kenya';
 
 export interface PayoutRequest {
   paymentId: string;
@@ -30,6 +45,16 @@ export interface PayoutResult {
 
 export async function disburseFinderfee(request: PayoutRequest): Promise<PayoutResult> {
   process.stdout.write(JSON.stringify({ level: 'info', service: 'payment-service', ts: new Date().toISOString(), msg: 'Disbursing finder fee', provider: request.provider, currency: request.currency, amount: request.amount }) + '\n');
+
+  // Idempotency guard: if this payment already completed (e.g. on retry after timeout),
+  // return the original provider reference rather than double-disbursing.
+  const idempCheck = await db.query(
+    `SELECT status, provider_transaction_id FROM payments WHERE id = $1`,
+    [request.paymentId]
+  );
+  if (idempCheck.rows[0]?.status === 'completed') {
+    return { success: true, providerReference: idempCheck.rows[0].provider_transaction_id };
+  }
 
   await db.query(
     `UPDATE payments SET status = 'processing', updated_at = NOW() WHERE id = $1`,
@@ -54,6 +79,30 @@ export async function disburseFinderfee(request: PayoutRequest): Promise<PayoutR
       case 'flutterwave_drc':
       case 'flutterwave_zimbabwe':
         result = await disburseFlutterwave(request);
+        break;
+      case 'wave_senegal':
+      case 'wave_cotedivoire':
+        result = await disburseWave(request);
+        break;
+      case 'orange_money_senegal':
+      case 'orange_money_cotedivoire':
+      case 'orange_money_mali':
+      case 'orange_money_cameroon':
+        result = await disburseOrangeMoney(request);
+        break;
+      case 'opay_nigeria':
+      case 'opay_egypt':
+        result = await disburseOpay(request);
+        break;
+      case 'mtn_uganda':
+      case 'mtn_cameroon':
+      case 'mtn_rwanda':
+        result = await disburseMTN(request);
+        break;
+      case 'airtel_uganda':
+      case 'airtel_tanzania':
+      case 'airtel_kenya':
+        result = await disburseAfricasTalking(request);
         break;
       default:
         result = { success: false, errorMessage: 'Unknown provider' };
@@ -115,7 +164,7 @@ async function disburseMpesa(request: PayoutRequest): Promise<PayoutResult> {
           metadata: { payment_id: request.paymentId },
         }]),
       }),
-      { headers: { Accept: 'application/json', apiKey, 'Content-Type': 'application/x-www-form-urlencoded' } }
+      { headers: { Accept: 'application/json', apiKey, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000 }
     );
 
     const entry = response.data.entries?.[0];
@@ -142,6 +191,7 @@ async function disburseMTN(request: PayoutRequest): Promise<PayoutResult> {
           Authorization: `Basic ${Buffer.from(`${apiUser}:${apiKey}`).toString('base64')}`,
           'Ocp-Apim-Subscription-Key': subscriptionKey,
         },
+        timeout: 10_000,
       }
     );
 
@@ -166,6 +216,7 @@ async function disburseMTN(request: PayoutRequest): Promise<PayoutResult> {
           'Ocp-Apim-Subscription-Key': subscriptionKey,
           'Content-Type': 'application/json',
         },
+        timeout: 10_000,
       }
     );
 
@@ -192,7 +243,7 @@ async function disburseFlutterwave(request: PayoutRequest): Promise<PayoutResult
         debit_currency: 'USD',
         meta: { sender: 'AfriXplore', mobile_number: request.phoneNumber, payment_type: 'mobilemoney' },
       },
-      { headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' } }
+      { headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' }, timeout: 10_000 }
     );
 
     if (response.data.status === 'success') {
@@ -220,7 +271,7 @@ async function disburseAfricasTalking(request: PayoutRequest): Promise<PayoutRes
           reason: 'BusinessPayment',
         }]),
       }),
-      { headers: { Accept: 'application/json', apiKey, 'Content-Type': 'application/x-www-form-urlencoded' } }
+      { headers: { Accept: 'application/json', apiKey, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10_000 }
     );
 
     const entry = response.data.entries?.[0];
@@ -231,6 +282,135 @@ async function disburseAfricasTalking(request: PayoutRequest): Promise<PayoutRes
   }
 }
 
+async function disburseWave(request: PayoutRequest): Promise<PayoutResult> {
+  const apiKey = process.env.WAVE_API_KEY!;
+  try {
+    const xofRate = await getUsdToRate('XOF');
+    const response = await axios.post(
+      'https://api.wave.com/v1/payout',
+      {
+        currency: 'XOF',  // WAEMU zone
+        receive_amount: String(Math.round(request.amount * xofRate)),  // USD → XOF (live rate)
+        mobile: request.phoneNumber,
+        name: 'AfriXplore Scout',
+        client_reference: request.paymentId,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': request.paymentId,
+        },
+        timeout: 10_000,
+      }
+    );
+    if (response.data.id) {
+      return { success: true, providerReference: response.data.id };
+    }
+    return { success: false, errorMessage: response.data.error ?? 'Wave payout failed' };
+  } catch (error: any) {
+    return { success: false, errorMessage: `Wave error: ${error.response?.data?.error || error.message}` };
+  }
+}
+
+async function disburseOrangeMoney(request: PayoutRequest): Promise<PayoutResult> {
+  const clientId = process.env.ORANGE_MONEY_CLIENT_ID!;
+  const clientSecret = process.env.ORANGE_MONEY_CLIENT_SECRET!;
+  try {
+    // Step 1: Get access token
+    const tokenRes = await axios.post(
+      'https://api.orange.com/oauth/v3/token',
+      new URLSearchParams({ grant_type: 'client_credentials' }),
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        },
+        timeout: 10_000,
+      }
+    );
+    const token = tokenRes.data.access_token;
+
+    // Step 2: B2C cashout
+    const country = request.provider.includes('senegal') ? 'SN'
+      : request.provider.includes('mali') ? 'ML'
+      : request.provider.includes('cameroon') ? 'CM'
+      : 'CI';
+
+    const xofRate = await getUsdToRate('XOF');
+    const response = await axios.post(
+      `https://api.orange.com/orange-money-webpay/${country}/v1/cashout`,
+      {
+        merchant_key: process.env.ORANGE_MONEY_MERCHANT_KEY,
+        currency: 'XOF',
+        order_id: request.paymentId,
+        amount: String(Math.round(request.amount * xofRate)),  // USD → XOF (live rate)
+        return_url: `${process.env.API_BASE_URL}/webhooks/orange-money`,
+        cancel_url: `${process.env.API_BASE_URL}/webhooks/orange-money`,
+        notif_url: `${process.env.API_BASE_URL}/webhooks/orange-money`,
+        lang: 'fr',
+        reference: request.paymentId,
+        subscriber_msisdn: request.phoneNumber.replace('+', ''),
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 10_000 }
+    );
+
+    if (response.data.status === '00') {
+      return { success: true, providerReference: response.data.txnid };
+    }
+    return { success: false, errorMessage: response.data.message ?? 'Orange Money payout failed' };
+  } catch (error: any) {
+    return { success: false, errorMessage: `Orange Money error: ${error.response?.data?.message || error.message}` };
+  }
+}
+
+async function disburseOpay(request: PayoutRequest): Promise<PayoutResult> {
+  const merchantId = process.env.OPAY_MERCHANT_ID!;
+  const secretKey = process.env.OPAY_SECRET_KEY!;
+  const country = request.provider === 'opay_egypt' ? 'EG' : 'NG';
+  const currency = country === 'EG' ? 'EGP' : 'NGN';
+  const rate = await getUsdToRate(currency);  // live USD → EGP or NGN
+
+  try {
+    const payload = {
+      amount: { currency, total: String(Math.round(request.amount * rate)) },
+      country,
+      reason: 'AfriXplore Finder Fee',
+      receiver: {
+        type: 'USER',
+        phoneNumber: request.phoneNumber,
+        name: 'AfriXplore Scout',
+      },
+      reference: request.paymentId,
+    };
+
+    const hash = require('crypto')
+      .createHmac('sha512', secretKey)
+      .update(JSON.stringify(payload))
+      .digest('hex');
+
+    const response = await axios.post(
+      'https://cashierapi.opayweb.com/api/v3/transfer/toWallet',
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${Buffer.from(merchantId).toString('base64')}`,
+          MerchantId: merchantId,
+          HashKey: hash,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10_000,
+      }
+    );
+
+    if (response.data.code === '00000') {
+      return { success: true, providerReference: response.data.data?.orderNo };
+    }
+    return { success: false, errorMessage: response.data.message ?? 'OPay transfer failed' };
+  } catch (error: any) {
+    return { success: false, errorMessage: `OPay error: ${error.response?.data?.message || error.message}` };
+  }
+}
+
 export function getProviderForCountry(country: string, preferredProvider?: string): MobileMoneyProvider {
   if (preferredProvider && preferredProvider !== 'manual') {
     return preferredProvider as MobileMoneyProvider;
@@ -238,14 +418,23 @@ export function getProviderForCountry(country: string, preferredProvider?: strin
 
   const countryProviderMap: Record<string, MobileMoneyProvider> = {
     KE: 'mpesa_kenya',
-    TZ: 'mpesa_tanzania',
+    TZ: 'airtel_tanzania',    // Tanzania — Airtel (was mpesa)
     GH: 'mtn_ghana',
     ZM: 'mtn_zambia',
     CD: 'flutterwave_drc',
     ZW: 'flutterwave_zimbabwe',
-    NG: 'flutterwave_drc',
-    CI: 'flutterwave_drc',
-    SN: 'flutterwave_drc',
+    SN: 'wave_senegal',       // Senegal — Wave dominant
+    CI: 'orange_money_cotedivoire', // Côte d'Ivoire
+    ML: 'orange_money_mali',  // Mali
+    BF: 'wave_cotedivoire',   // Burkina Faso — Wave
+    GN: 'orange_money_senegal', // Guinea
+    CM: 'orange_money_cameroon', // Cameroon
+    MG: 'orange_money_senegal', // Madagascar
+    UG: 'mtn_uganda',         // Uganda
+    RW: 'mtn_rwanda',         // Rwanda
+    NG: 'opay_nigeria',       // Nigeria — OPay
+    EG: 'opay_egypt',         // Egypt
+    ET: 'airtel_kenya',       // Ethiopia — best available
   };
 
   return countryProviderMap[country.toUpperCase()] || 'mpesa_kenya';

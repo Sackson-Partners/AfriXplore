@@ -25,7 +25,6 @@ jobs:
   require-staging:
     name: Verify Staging Health
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Azure Login
         uses: azure/login@v2
@@ -48,11 +47,43 @@ jobs:
             echo "No Container Apps deployed yet - skipping"
           fi
 
+  # ─── PROVISION INFRASTRUCTURE ───────────────────────────────────────────────
+  provision-infrastructure:
+    name: Provision Infrastructure (Bicep)
+    runs-on: ubuntu-latest
+    needs: [require-staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Bicep — what-if first
+        id: whatif
+        run: |
+          az deployment group what-if \
+            --name "afrixplore-${{ github.sha }}" \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/bicep/main.bicep \
+            --parameters environment=${{ env.ENVIRONMENT }} \
+            2>&1 | tail -20
+
+      - name: Deploy Bicep
+        run: |
+          az deployment group create \
+            --name "afrixplore-${{ github.sha }}" \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --template-file infrastructure/bicep/main.bicep \
+            --parameters environment=${{ env.ENVIRONMENT }} \
+            --mode Incremental
+
   # ─── BUILD & PUSH ───────────────────────────────────────────────────────────
   build-and-push:
     name: Build & Push Images
     runs-on: ubuntu-latest
-    needs: [require-staging]
+    needs: [provision-infrastructure]
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +93,7 @@ jobs:
           - msim-api
           - notification-service
           - payment-service
+          - ai-inference
           - geospatial-worker
     steps:
       - uses: actions/checkout@v4
@@ -90,11 +122,29 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: NODE_ENV=production
 
+  # ─── RUN DATABASE MIGRATIONS ────────────────────────────────────────────────
+  run-migrations:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Run migrations
+        run: bash infrastructure/scripts/run-migrations.sh infrastructure/scripts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
   # ─── DEPLOY CONTAINER APPS ──────────────────────────────────────────────────
   deploy-container-apps:
     name: Deploy Container Apps
     runs-on: ubuntu-latest
-    needs: [build-and-push]
+    needs: [build-and-push, run-migrations]
     strategy:
       max-parallel: 2
       matrix:
@@ -114,6 +164,9 @@ jobs:
           - name: payment-service
             app: ca-payment-staging
             allowed_origins: "true"
+          - name: ai-inference
+            app: ca-ai-inference-staging
+            allowed_origins: "false"
           - name: geospatial-worker
             app: ca-geo-worker-staging
             allowed_origins: "false"
@@ -125,39 +178,77 @@ jobs:
 
       - name: Set Container App secrets for ${{ matrix.service.app }}
         run: |
+          # Base secrets — every service
+          SECRETS="database-url=${{ secrets.DATABASE_URL }} \
+            service-bus-conn=${{ secrets.SERVICE_BUS_CONNECTION_STRING }} \
+            signalr-conn=${{ secrets.SIGNALR_CONNECTION_STRING }} \
+            appinsights-conn=${{ secrets.APPINSIGHTS_CONNECTION_STRING }} \
+            storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }} \
+            momo-base-url=${{ secrets.MTN_MOMO_BASE_URL }}"
+
+          # Service-specific secrets
+          case "${{ matrix.service.name }}" in
+            scout-api)
+              SECRETS="$SECRETS \
+                at-ussd-secret=${{ secrets.AT_USSD_SECRET }}"
+              ;;
+            intelligence-api)
+              SECRETS="$SECRETS \
+                stripe-secret-key=${{ secrets.STRIPE_SECRET_KEY }} \
+                stripe-webhook-secret=${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+              ;;
+            notification-service)
+              SECRETS="$SECRETS \
+                firebase-sa-json=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}"
+              ;;
+          esac
+
           az containerapp secret set \
             --name ${{ matrix.service.app }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --secrets \
-              "database-url=${{ secrets.DATABASE_URL }}" \
-              "service-bus-conn=${{ secrets.SERVICE_BUS_CONNECTION_STRING }}" \
-              "signalr-conn=${{ secrets.SIGNALR_CONNECTION_STRING }}" \
-              "appinsights-conn=${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
-              "storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
-              "momo-base-url=${{ secrets.MTN_MOMO_BASE_URL }}"
+            --secrets $SECRETS
 
       - name: Deploy ${{ matrix.service.name }}
         run: |
-          EXTRA_ENVS=""
+          # Base env vars — every service
+          ENV_VARS="DATABASE_URL=secretref:database-url \
+            SERVICE_BUS_CONNECTION_STRING=secretref:service-bus-conn \
+            AZURE_SIGNALR_CONNECTION_STRING=secretref:signalr-conn \
+            APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-conn \
+            AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn \
+            AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }} \
+            NODE_ENV=production"
+
           if [ "${{ matrix.service.allowed_origins }}" = "true" ]; then
-            EXTRA_ENVS="ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}"
+            ENV_VARS="$ENV_VARS ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}"
           fi
-          if [ "${{ matrix.service.name }}" = "payment-service" ]; then
-            EXTRA_ENVS="$EXTRA_ENVS MTN_MOMO_BASE_URL=secretref:momo-base-url"
-          fi
+
+          # Service-specific env vars
+          case "${{ matrix.service.name }}" in
+            scout-api)
+              ENV_VARS="$ENV_VARS \
+                AT_USSD_SECRET=secretref:at-ussd-secret"
+              ;;
+            intelligence-api)
+              ENV_VARS="$ENV_VARS \
+                STRIPE_SECRET_KEY=secretref:stripe-secret-key \
+                STRIPE_WEBHOOK_SECRET=secretref:stripe-webhook-secret"
+              ;;
+            notification-service)
+              ENV_VARS="$ENV_VARS \
+                FIREBASE_SERVICE_ACCOUNT_JSON=secretref:firebase-sa-json"
+              ;;
+            payment-service)
+              ENV_VARS="$ENV_VARS \
+                MTN_MOMO_BASE_URL=secretref:momo-base-url"
+              ;;
+          esac
 
           az containerapp update \
             --name ${{ matrix.service.app }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.REGISTRY }}/${{ matrix.service.name }}:${{ github.sha }} \
-            --set-env-vars \
-              "DATABASE_URL=secretref:database-url" \
-              "SERVICE_BUS_CONNECTION_STRING=secretref:service-bus-conn" \
-              "AZURE_SIGNALR_CONNECTION_STRING=secretref:signalr-conn" \
-              "APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-conn" \
-              "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-conn" \
-              "NODE_ENV=production" \
-              $EXTRA_ENVS
+            --set-env-vars $ENV_VARS
 
   # ─── DEPLOY TO VERCEL ───────────────────────────────────────────────────────
   deploy-vercel-production:
@@ -197,6 +288,7 @@ jobs:
       msim_fqdn: ${{ steps.fqdns.outputs.msim_fqdn }}
       payment_fqdn: ${{ steps.fqdns.outputs.payment_fqdn }}
       notification_fqdn: ${{ steps.fqdns.outputs.notification_fqdn }}
+      ai_inference_fqdn: ${{ steps.fqdns.outputs.ai_inference_fqdn }}
     steps:
       - name: Azure Login
         uses: azure/login@v2
@@ -214,7 +306,8 @@ jobs:
             "ca-intelligence-api-staging:intelligence_fqdn" \
             "ca-msim-api-staging:msim_fqdn" \
             "ca-payment-staging:payment_fqdn" \
-            "ca-notification-staging:notification_fqdn"; do
+            "ca-notification-staging:notification_fqdn" \
+            "ca-ai-inference-staging:ai_inference_fqdn"; do
             APP="${PAIR%%:*}"
             KEY="${PAIR##*:}"
             FQDN=$(az containerapp show \
@@ -235,6 +328,7 @@ jobs:
             [msim-api]="https://${{ steps.fqdns.outputs.msim_fqdn }}/health"
             [payment-service]="https://${{ steps.fqdns.outputs.payment_fqdn }}/health"
             [notification-service]="https://${{ steps.fqdns.outputs.notification_fqdn }}/health"
+            [ai-inference]="https://${{ steps.fqdns.outputs.ai_inference_fqdn }}/health"
           )
           for SVC in "${!ENDPOINTS[@]}"; do
             URL="${ENDPOINTS[$SVC]}"
@@ -298,20 +392,23 @@ jobs:
           FQDN="${{ needs.post-deploy-health.outputs.scout_fqdn }}"
           if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
           HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
-            -X POST "https://${FQDN}/scout/v1/ussd" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data "sessionId=pill-test-$$&serviceCode=%2A123%23&phoneNumber=%2B233000000000&text=" \
+            -X POST "https://${FQDN}/scout/v1/ussd/callback" \
+            -H "Content-Type: application/json" \
+            --data '{"sessionId":"pill-test","phoneNumber":"+233000000000","text":""}' \
             --max-time 20 || echo "000")
           echo "USSD ping → HTTP $HTTP"
-          if [ "$HTTP" != "200" ] && [ "$HTTP" != "400" ]; then
-            echo "::error::USSD route returned $HTTP — expected 200 or 400 (not 401/5xx)"
+          # 200 = AT_USSD_SECRET unset → welcome screen
+          # 400 = validation error (also fine)
+          # 401 = secret set but no sig (expected in prod with secret configured)
+          if [ "$HTTP" = "500" ] || [ "$HTTP" = "000" ]; then
+            echo "::error::USSD route returned $HTTP — 5xx/timeout means broken"
             exit 1
           fi
 
-      # ── Test 4: Stripe webhook open route ─────────────────────────────────
-      - name: Pill — Stripe webhook open (expect 400, not 401/5xx)
+      # ── Test 4: Stripe webhook (intelligence-api) — expect 400 missing sig ──
+      - name: Pill — Stripe webhook open (expect 400, not 5xx)
         run: |
-          FQDN="${{ needs.post-deploy-health.outputs.payment_fqdn }}"
+          FQDN="${{ needs.post-deploy-health.outputs.intelligence_fqdn }}"
           if [ -z "$FQDN" ]; then echo "No FQDN, skipping"; exit 0; fi
           HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
             -X POST "https://${FQDN}/webhooks/stripe" \
@@ -319,9 +416,10 @@ jobs:
             --data '{"type":"pill.test"}' \
             --max-time 20 || echo "000")
           echo "Stripe webhook ping → HTTP $HTTP"
-          # 400 = route reached but signature missing (expected); 401/5xx = wrong
-          if [ "$HTTP" = "401" ] || [ "$HTTP" = "500" ] || [ "$HTTP" = "000" ]; then
-            echo "::error::Stripe webhook returned $HTTP — route may be broken"
+          # 400 = route reachable, signature missing (expected)
+          # 503 = STRIPE_WEBHOOK_SECRET not configured yet (acceptable)
+          if [ "$HTTP" = "500" ] || [ "$HTTP" = "000" ] || [ "$HTTP" = "404" ]; then
+            echo "::error::Stripe webhook returned $HTTP — route missing or crashed"
             exit 1
           fi
 
@@ -362,7 +460,7 @@ jobs:
       - name: Health summary
         run: |
           FAILED=0
-          for APP in ca-scout-api-staging ca-intelligence-api-staging ca-msim-api-staging ca-payment-staging ca-notification-staging; do
+          for APP in ca-ai-inference-staging ca-scout-api-staging ca-intelligence-api-staging ca-msim-api-staging ca-payment-staging ca-notification-staging; do
             FQDN=$(az containerapp show \
               --name "$APP" \
               --resource-group "afrixplore-rg" \

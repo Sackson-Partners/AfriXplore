@@ -55,9 +55,7 @@ const router = Router();
  *         $ref: '#/components/schemas/Error'
  */
 router.get('/', async (req: Request, res: Response) => {
-  const subscriberId   = req.headers['x-subscriber-id'] as string;
-  const subscriberTier = req.headers['x-subscriber-tier'] as string;
-  const territories    = req.headers['x-licensed-territories'] as string;
+  const { id: subscriberId, tier: subscriberTier, hasLicensedTerritories: territories } = req.subscriber!;
 
   const schema = z.object({
     min_dpi:       z.coerce.number().min(0).max(100).default(0),
@@ -65,9 +63,11 @@ router.get('/', async (req: Request, res: Response) => {
     status:        z.string().optional(),
     country:       z.string().optional(),
     bbox:          z.string().optional(),
+    // Stable cursor: "ISO_TIMESTAMP:UUID" — prevents skips/dupes when
+    // last_updated changes between pages due to DPI recalculation.
     cursor:        z.string().optional(),
     limit:         z.coerce.number().min(1).max(100).default(50),
-    data_lag_days: z.coerce.number().default(0),
+    data_lag_days: z.coerce.number().min(0).default(0),
   });
 
   try {
@@ -119,9 +119,13 @@ router.get('/', async (req: Request, res: Response) => {
       : '';
 
     if (params.cursor) {
-      spatialFilter += ` AND ac.last_updated < $${paramIdx}`;
-      queryParams.push(params.cursor);
-      paramIdx++;
+      // cursor format: "ISO_TIMESTAMP:UUID"
+      const [cursorTs, cursorId] = params.cursor.split(':uuid:');
+      if (cursorTs && cursorId) {
+        spatialFilter += ` AND (ac.last_updated, ac.id) < ($${paramIdx}::timestamptz, $${paramIdx + 1}::uuid)`;
+        queryParams.push(cursorTs, cursorId);
+        paramIdx += 2;
+      }
     }
 
     queryParams.push(params.limit);
@@ -165,11 +169,12 @@ router.get('/', async (req: Request, res: Response) => {
     return res.json({
       data: result.rows,
       count: result.rows.length,
-      tier: subscriberTier,
-      next_cursor:
-        result.rows.length === params.limit
-          ? result.rows[result.rows.length - 1]?.last_updated
-          : null,
+      tier: subscriberTier ?? null,
+      next_cursor: (() => {
+        if (result.rows.length < params.limit) return null;
+        const last = result.rows[result.rows.length - 1];
+        return last ? `${last.last_updated}:uuid:${last.id}` : null;
+      })(),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -186,6 +191,16 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
+  const { id: subscriberId, hasLicensedTerritories } = req.subscriber!;
+
+  // Build territory guard: if the subscriber has licensed territories, only
+  // return the cluster if its centroid falls within them. Return 404 (not 403)
+  // so that cluster UUIDs cannot be used to probe territory boundaries.
+  const territoryJoin = hasLicensedTerritories
+    ? `JOIN subscribers sub ON sub.id = $2
+       AND ST_Within(ac.centroid::geometry, sub.licensed_territories::geometry)`
+    : '';
+  const queryParams = hasLicensedTerritories ? [id, subscriberId] : [id];
 
   const result = await db.query(
     `SELECT
@@ -214,8 +229,9 @@ router.get('/:id', async (req: Request, res: Response) => {
         ) fv_summary
       ) AS field_visits
      FROM anomaly_clusters ac
+     ${territoryJoin}
      WHERE ac.id = $1`,
-    [id]
+    queryParams
   );
 
   if (result.rows.length === 0) {

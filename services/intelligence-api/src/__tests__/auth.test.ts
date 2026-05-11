@@ -40,6 +40,40 @@ function makeReqResMock(authHeader?: string) {
   return { req, res, next };
 }
 
+describe('intelligence-api startup guard', () => {
+  const originalExit = process.exit;
+  const originalEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    (process.exit as any) = jest.fn();
+  });
+
+  afterEach(() => {
+    process.exit = originalExit;
+    process.env.NODE_ENV = originalEnv;
+    delete process.env.DEV_BYPASS_AUTH;
+    jest.resetModules();
+  });
+
+  it('calls process.exit(1) when DEV_BYPASS_AUTH=true in production', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.DEV_BYPASS_AUTH = 'true';
+    jest.isolateModules(() => {
+      require('../middleware/auth');
+    });
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('does NOT call process.exit when DEV_BYPASS_AUTH=true in development', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.DEV_BYPASS_AUTH = 'true';
+    jest.isolateModules(() => {
+      require('../middleware/auth');
+    });
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+});
+
 describe('intelligence-api authMiddleware', () => {
   beforeEach(() => jest.clearAllMocks());
 

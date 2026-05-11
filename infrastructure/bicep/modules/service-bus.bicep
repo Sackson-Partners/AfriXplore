@@ -22,6 +22,7 @@ var topics = [
   'reports-ingested'
   'anomaly-detected'
   'payment-triggered'
+  'mineral-assessed'
   'subscription-changed'
   'field-dispatched'
   'ml-training-ready'
@@ -40,7 +41,7 @@ resource topicResources 'Microsoft.ServiceBus/namespaces/topics@2022-10-01-previ
   }
 }]
 
-// Subscription: geospatial-worker listens to reports-ingested
+// ── reports-ingested subscriptions ──────────────────────────────────────────
 resource geoWorkerSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: topicResources[0]
   name: 'geospatial-worker'
@@ -52,8 +53,30 @@ resource geoWorkerSubscription 'Microsoft.ServiceBus/namespaces/topics/subscript
   }
 }
 
-// Subscription: notification-service listens to anomaly-detected
-resource notificationSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+resource aiPipelineSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: topicResources[0]
+  name: 'ai-pipeline'
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P7D'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 5
+  }
+}
+
+resource notificationReportsSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: topicResources[0]
+  name: 'notification-service'
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P7D'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 3
+  }
+}
+
+// ── anomaly-detected subscriptions ──────────────────────────────────────────
+resource notificationAnomalySubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: topicResources[1]
   name: 'notification-service'
   properties: {
@@ -64,7 +87,7 @@ resource notificationSubscription 'Microsoft.ServiceBus/namespaces/topics/subscr
   }
 }
 
-// Subscription: payment-service listens to payment-triggered
+// ── payment-triggered subscriptions ─────────────────────────────────────────
 resource paymentSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
   parent: topicResources[2]
   name: 'payment-service'
@@ -73,7 +96,29 @@ resource paymentSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptio
     defaultMessageTimeToLive: 'P7D'
     lockDuration: 'PT5M'
     maxDeliveryCount: 3
-    requiresSession: true
+  }
+}
+
+resource notificationPaymentSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: topicResources[2]
+  name: 'notification-service'
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P7D'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 3
+  }
+}
+
+// ── mineral-assessed subscriptions ──────────────────────────────────────────
+resource intelligenceDpiSubscription 'Microsoft.ServiceBus/namespaces/topics/subscriptions@2022-10-01-preview' = {
+  parent: topicResources[3]
+  name: 'intelligence-dpi'
+  properties: {
+    deadLetteringOnMessageExpiration: true
+    defaultMessageTimeToLive: 'P7D'
+    lockDuration: 'PT5M'
+    maxDeliveryCount: 5
   }
 }
 

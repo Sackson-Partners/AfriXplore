@@ -15,12 +15,10 @@ const CONNECTION_STRING = process.env.SERVICE_BUS_CONNECTION_STRING!;
 interface ReportIngestedMessage {
   reportId: string;
   scoutId: string;
-  mineral_type: string;
-  latitude: number;
-  longitude: number;
-  photoUrls: string[];
-  voiceNoteUrl?: string;
-  timestamp: string;
+  mineralType?: string;    // scout-api app publishes 'mineralType' (camelCase)
+  mineral_type?: string;   // USSD publishes 'mineral_type' (snake_case)
+  source: 'app' | 'ussd';
+  // latitude/longitude/photoUrls NOT in message — fetched from DB
 }
 
 class AIInferenceConsumer {
@@ -33,7 +31,7 @@ class AIInferenceConsumer {
       receiveMode: 'peekLock',
     });
 
-    console.log('AI inference consumer started');
+    process.stdout.write(JSON.stringify({ level: 'info', service: 'ai-inference', ts: new Date().toISOString(), msg: 'AI inference consumer started' }) + '\n');
 
     receiver.subscribe({
       processMessage: async (message: ServiceBusReceivedMessage) => {
@@ -47,23 +45,47 @@ class AIInferenceConsumer {
           await this.processReport(message.body as ReportIngestedMessage);
           await receiver.completeMessage(message);
         } catch (error) {
-          console.error('AI processing error:', error);
+          process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: 'AI processing error', err: (error as Error).message }) + '\n');
           await receiver.abandonMessage(message);
         } finally {
           this.processingCount--;
         }
       },
       processError: async (error) => {
-        console.error('Consumer error:', error.error);
+        process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: 'Consumer error', err: String(error.error) }) + '\n');
       },
     });
   }
 
   private async processReport(message: ReportIngestedMessage) {
-    const { reportId, latitude, longitude, photoUrls, voiceNoteUrl } = message;
+    const { reportId } = message;
 
-    console.log(`Processing report ${reportId}`);
+    process.stdout.write(JSON.stringify({ level: 'info', service: 'ai-inference', ts: new Date().toISOString(), msg: 'Processing report', reportId }) + '\n');
     const start = Date.now();
+
+    // Fetch full report data — the SB message only has reportId/scoutId/mineralType
+    const pool = db;
+    const reportResult = await pool.query(
+      `SELECT
+         ST_Y(location::geometry) AS latitude,
+         ST_X(location::geometry) AS lon,
+         photo_uris,
+         audio_uri,
+         country
+       FROM reports WHERE id = $1`,
+      [reportId]
+    );
+
+    if (reportResult.rows.length === 0) {
+      process.stdout.write(JSON.stringify({ level: 'warn', service: 'ai-inference', ts: new Date().toISOString(), msg: 'Report not found — skipping AI pipeline', reportId }) + '\n');
+      return;
+    }
+
+    const row = reportResult.rows[0];
+    const latitude: number = parseFloat(row.latitude) || 0;
+    const longitude: number = parseFloat(row.lon) || 0;
+    const photoUrls: string[] = row.photo_uris || [];
+    const voiceNoteUrl: string | undefined = row.audio_uri || undefined;
 
     try {
       const tasks: Promise<any>[] = [
@@ -71,10 +93,22 @@ class AIInferenceConsumer {
       ];
 
       if (voiceNoteUrl) {
-        tasks.push(runVoiceTranscription(reportId, voiceNoteUrl));
+        tasks.push(runVoiceTranscription(reportId, voiceNoteUrl, row.country));
       }
 
-      await Promise.allSettled(tasks);
+      const results = await Promise.allSettled(tasks);
+      const failures = results.filter((r) => r.status === 'rejected');
+      if (failures.length > 0) {
+        const reasons = failures.map((r) => (r as PromiseRejectedResult).reason?.message ?? String((r as PromiseRejectedResult).reason));
+        process.stdout.write(
+          JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: 'AI pipeline subtask(s) failed', reportId, failures: reasons }) + '\n'
+        );
+        // If ALL tasks failed there is nothing useful to persist — rethrow so
+        // the message is abandoned and redelivered rather than silently completed.
+        if (failures.length === tasks.length) {
+          throw new Error(`All AI tasks failed for report ${reportId}: ${reasons.join('; ')}`);
+        }
+      }
 
       trackEvent('report_ai_processed', {
         reportId,
@@ -83,7 +117,7 @@ class AIInferenceConsumer {
       });
 
     } catch (error) {
-      console.error(`Failed to process report ${reportId}:`, error);
+      process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: 'Failed to process report', reportId, err: (error as Error).message }) + '\n');
       await db.query('UPDATE reports SET updated_at = NOW() WHERE id = $1', [reportId]);
       throw error;
     }

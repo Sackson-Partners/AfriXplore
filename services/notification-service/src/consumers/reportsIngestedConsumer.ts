@@ -1,5 +1,5 @@
 import { ServiceBusClient, ServiceBusReceivedMessage } from '@azure/service-bus';
-import { sendAnomalyAlert } from '../handlers/anomalyAlert';
+import { handleReportIngested } from '../handlers/reportIngested';
 
 const log = {
   info:  (msg: string, extra?: object) => process.stdout.write(JSON.stringify({ level: 'info',  service: 'notification-service', ts: new Date().toISOString(), msg, ...extra }) + '\n'),
@@ -7,31 +7,33 @@ const log = {
 };
 
 const CONNECTION_STRING = process.env.SERVICE_BUS_CONNECTION_STRING!;
+const TOPIC = 'reports-ingested';
+const SUBSCRIPTION = 'notification-service';
 const MAX_DELIVERY_COUNT = 3;
 
-class AnomalyConsumer {
+class ReportsIngestedConsumer {
   private client: ServiceBusClient | null = null;
 
   async start(): Promise<void> {
     this.client = new ServiceBusClient(CONNECTION_STRING);
     const receiver = this.client.createReceiver(
-      'anomaly-detected',
-      'notification-service',
+      TOPIC,
+      SUBSCRIPTION,
       { receiveMode: 'peekLock' }
     );
 
-    log.info('Anomaly notification consumer started');
+    log.info('Reports-ingested notification consumer started');
 
     receiver.subscribe({
       processMessage: async (message: ServiceBusReceivedMessage) => {
         const deliveryCount = message.deliveryCount ?? 0;
 
         try {
-          await sendAnomalyAlert(message);
+          await handleReportIngested(message);
           await receiver.completeMessage(message);
         } catch (err) {
           const error = err as Error;
-          log.error('Failed to process anomaly message', {
+          log.error('Failed to process reports-ingested message', {
             deliveryCount,
             error: error.message,
           });
@@ -49,7 +51,7 @@ class AnomalyConsumer {
         }
       },
       processError: async (args) => {
-        log.error('Anomaly consumer error', { error: String(args.error) });
+        log.error('Reports-ingested consumer error', { error: String(args.error) });
       },
     });
   }
@@ -59,4 +61,4 @@ class AnomalyConsumer {
   }
 }
 
-export const anomalyConsumer = new AnomalyConsumer();
+export const reportsIngestedConsumer = new ReportsIngestedConsumer();
