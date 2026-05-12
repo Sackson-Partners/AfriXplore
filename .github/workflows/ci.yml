@@ -279,7 +279,7 @@ jobs:
         run: echo "::warning::PLATFORM_WEB_STAGING_URL not set — skipping E2E tests"
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
