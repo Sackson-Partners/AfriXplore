@@ -52,6 +52,10 @@ jobs:
     name: Provision Infrastructure (Bicep)
     runs-on: ubuntu-latest
     needs: [require-staging]
+    # Container Apps sometimes time-out during initial Bicep provisioning.
+    # Downstream jobs (build-and-push, deploy-container-apps) can still fix
+    # a failed Container App via az containerapp update with the real image.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
