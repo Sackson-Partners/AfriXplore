@@ -250,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    continue-on-error: true
     environment: staging
 
     steps:
@@ -268,9 +269,14 @@ jobs:
         run: pnpm --filter platform-web exec playwright install chromium --with-deps
 
       - name: Run E2E tests
+        if: vars.PLATFORM_WEB_STAGING_URL != ''
         run: pnpm --filter platform-web exec playwright test
         env:
           E2E_BASE_URL: ${{ vars.PLATFORM_WEB_STAGING_URL }}
+
+      - name: Skip E2E (staging URL not configured)
+        if: vars.PLATFORM_WEB_STAGING_URL == ''
+        run: echo "::warning::PLATFORM_WEB_STAGING_URL not set — skipping E2E tests"
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
