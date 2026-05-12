@@ -60,6 +60,25 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Cancel stuck ARM deployments and reset failed Container Apps
+        continue-on-error: true
+        run: |
+          RG="${{ env.RESOURCE_GROUP }}"
+          # Cancel any running ARM deployments to avoid DeploymentActive conflicts
+          RUNNING=$(az deployment group list --resource-group "$RG" \
+            --query "[?properties.provisioningState=='Running'].name" -o tsv 2>/dev/null || echo "")
+          for dep in $RUNNING; do
+            echo "Cancelling active deployment: $dep"
+            az deployment group cancel --name "$dep" --resource-group "$RG" || true
+          done
+          # Delete Container Apps stuck in Failed provisioning state so Bicep can re-create them
+          FAILED_APPS=$(az containerapp list --resource-group "$RG" \
+            --query "[?properties.provisioningState=='Failed'].name" -o tsv 2>/dev/null || echo "")
+          for app in $FAILED_APPS; do
+            echo "Deleting failed Container App: $app"
+            az containerapp delete --name "$app" --resource-group "$RG" --yes || true
+          done
+
       - name: Deploy Bicep — what-if first
         id: whatif
         # what-if is informational only — transient Azure errors should not block deploy
@@ -173,8 +192,8 @@ jobs:
       - name: Build & Push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.service }}
-          file: ./services/${{ matrix.service }}/Dockerfile
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
