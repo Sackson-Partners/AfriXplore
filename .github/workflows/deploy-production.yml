@@ -331,24 +331,31 @@ jobs:
             ENV_VARS="$ENV_VARS ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}"
           fi
 
-          # Service-specific env vars
+          # Service-specific env vars — only reference a secretref if the
+          # secret was actually registered (i.e., non-empty GitHub secret)
           case "${{ matrix.service.name }}" in
             scout-api)
-              ENV_VARS="$ENV_VARS \
-                AT_USSD_SECRET=secretref:at-ussd-secret"
+              if [ -n "${{ secrets.AT_USSD_SECRET }}" ]; then
+                ENV_VARS="$ENV_VARS AT_USSD_SECRET=secretref:at-ussd-secret"
+              fi
               ;;
             intelligence-api)
-              ENV_VARS="$ENV_VARS \
-                STRIPE_SECRET_KEY=secretref:stripe-secret-key \
-                STRIPE_WEBHOOK_SECRET=secretref:stripe-webhook-secret"
+              if [ -n "${{ secrets.STRIPE_SECRET_KEY }}" ]; then
+                ENV_VARS="$ENV_VARS STRIPE_SECRET_KEY=secretref:stripe-secret-key"
+              fi
+              if [ -n "${{ secrets.STRIPE_WEBHOOK_SECRET }}" ]; then
+                ENV_VARS="$ENV_VARS STRIPE_WEBHOOK_SECRET=secretref:stripe-webhook-secret"
+              fi
               ;;
             notification-service)
-              ENV_VARS="$ENV_VARS \
-                FIREBASE_SERVICE_ACCOUNT_JSON=secretref:firebase-sa-json"
+              if [ -n "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}" ]; then
+                ENV_VARS="$ENV_VARS FIREBASE_SERVICE_ACCOUNT_JSON=secretref:firebase-sa-json"
+              fi
               ;;
             payment-service)
-              ENV_VARS="$ENV_VARS \
-                MTN_MOMO_BASE_URL=secretref:momo-base-url"
+              if [ -n "${{ secrets.MTN_MOMO_BASE_URL }}" ]; then
+                ENV_VARS="$ENV_VARS MTN_MOMO_BASE_URL=secretref:momo-base-url"
+              fi
               ;;
           esac
 
