@@ -277,35 +277,42 @@ jobs:
 
       - name: Set Container App secrets for ${{ matrix.service.app }}
         run: |
-          # Base secrets — every service
-          SECRETS="database-url=${{ secrets.DATABASE_URL }} \
-            service-bus-conn=${{ secrets.SERVICE_BUS_CONNECTION_STRING }} \
-            signalr-conn=${{ secrets.SIGNALR_CONNECTION_STRING }} \
-            appinsights-conn=${{ secrets.APPINSIGHTS_CONNECTION_STRING }} \
-            storage-conn=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }} \
-            momo-base-url=${{ secrets.MTN_MOMO_BASE_URL }}"
+          # Build secrets array — skip any that are empty (GitHub secret not set)
+          add_secret() {
+            local name=$1 value=$2
+            [ -n "$value" ] && SECRETS="$SECRETS $name=$value"
+          }
+
+          SECRETS=""
+          add_secret "database-url"      "${{ secrets.DATABASE_URL }}"
+          add_secret "service-bus-conn"  "${{ secrets.SERVICE_BUS_CONNECTION_STRING }}"
+          add_secret "signalr-conn"      "${{ secrets.SIGNALR_CONNECTION_STRING }}"
+          add_secret "appinsights-conn"  "${{ secrets.APPINSIGHTS_CONNECTION_STRING }}"
+          add_secret "storage-conn"      "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}"
+          add_secret "momo-base-url"     "${{ secrets.MTN_MOMO_BASE_URL }}"
 
           # Service-specific secrets
           case "${{ matrix.service.name }}" in
             scout-api)
-              SECRETS="$SECRETS \
-                at-ussd-secret=${{ secrets.AT_USSD_SECRET }}"
+              add_secret "at-ussd-secret" "${{ secrets.AT_USSD_SECRET }}"
               ;;
             intelligence-api)
-              SECRETS="$SECRETS \
-                stripe-secret-key=${{ secrets.STRIPE_SECRET_KEY }} \
-                stripe-webhook-secret=${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+              add_secret "stripe-secret-key"     "${{ secrets.STRIPE_SECRET_KEY }}"
+              add_secret "stripe-webhook-secret" "${{ secrets.STRIPE_WEBHOOK_SECRET }}"
               ;;
             notification-service)
-              SECRETS="$SECRETS \
-                firebase-sa-json=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}"
+              add_secret "firebase-sa-json" "${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}"
               ;;
           esac
 
-          az containerapp secret set \
-            --name ${{ matrix.service.app }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --secrets $SECRETS
+          if [ -z "$SECRETS" ]; then
+            echo "No secrets to set — skipping"
+          else
+            az containerapp secret set \
+              --name ${{ matrix.service.app }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --secrets $SECRETS
+          fi
 
       - name: Deploy ${{ matrix.service.name }}
         run: |
