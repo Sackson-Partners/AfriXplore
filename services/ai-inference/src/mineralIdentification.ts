@@ -214,7 +214,7 @@ export async function runMineralIdentification(
     hazardAlerts,
   });
 
-  console.log(`Mineral ID: ${topMineral} (${(confidence * 100).toFixed(1)}%) — ${processingTimeMs}ms`);
+  process.stdout.write(JSON.stringify({ level: 'info', service: 'ai-inference', ts: new Date().toISOString(), msg: `Mineral ID: ${topMineral} (${(confidence * 100).toFixed(1)}%) — ${processingTimeMs}ms` }) + '\n');
 
   return {
     reportId,

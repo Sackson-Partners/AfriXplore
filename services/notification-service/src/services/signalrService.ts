@@ -16,7 +16,7 @@ export async function sendSignalRBroadcast(
     /Endpoint=(https?:\/\/[^;]+)/
   );
   if (!endpointMatch) {
-    console.warn('SignalR connection string missing Endpoint');
+    process.stderr.write(JSON.stringify({ level: 'warn', service: 'notification-service', ts: new Date().toISOString(), msg: 'SignalR connection string missing Endpoint' }) + '\n');
     return;
   }
 
@@ -39,12 +39,12 @@ export async function sendSignalRBroadcast(
     });
 
     if (!response.ok) {
-      console.error(`SignalR broadcast failed: HTTP ${response.status}`);
+      process.stderr.write(JSON.stringify({ level: 'error', service: 'notification-service', ts: new Date().toISOString(), msg: `SignalR broadcast failed: HTTP ${response.status}` }) + '\n');
     } else {
-      console.log(`SignalR broadcast -> ${hub}/${target}`);
+      process.stdout.write(JSON.stringify({ level: 'info', service: 'notification-service', ts: new Date().toISOString(), msg: `SignalR broadcast -> ${hub}/${target}` }) + '\n');
     }
   } catch (error) {
-    console.error('SignalR service error:', error);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'notification-service', ts: new Date().toISOString(), msg: 'SignalR service error', error: (error as Error).message }) + '\n');
   }
 }
 

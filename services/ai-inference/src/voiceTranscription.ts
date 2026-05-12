@@ -83,7 +83,7 @@ export async function runVoiceTranscription(
         }
         break;
       } else if (status === 'Failed') {
-        console.error(`Transcription failed for report ${reportId}`);
+        process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: `Transcription failed for report ${reportId}` }) + '\n');
         break;
       }
     }
@@ -93,7 +93,7 @@ export async function runVoiceTranscription(
         `UPDATE reports SET voice_note_transcript = $1, updated_at = NOW() WHERE id = $2`,
         [transcript, reportId]
       );
-      console.log(`Transcribed voice note for ${reportId}: "${transcript.slice(0, 50)}..."`);
+      process.stdout.write(JSON.stringify({ level: 'info', service: 'ai-inference', ts: new Date().toISOString(), msg: `Transcribed voice note for ${reportId}: "${transcript.slice(0, 50)}..."` }) + '\n');
     }
 
     // Cleanup transcription job
@@ -105,7 +105,7 @@ export async function runVoiceTranscription(
     return transcript;
 
   } catch (error) {
-    console.error(`Voice transcription error for ${reportId}:`, error);
+    process.stderr.write(JSON.stringify({ level: 'error', service: 'ai-inference', ts: new Date().toISOString(), msg: `Voice transcription error for ${reportId}`, error: (error as Error).message }) + '\n');
     return null;
   }
 }

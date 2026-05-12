@@ -117,7 +117,7 @@ router.post('/payout/request', async (req: Request, res: Response) => {
     paymentId: payment.id,
     amountUsd: pendingBalance,
     reason: 'manual_payout_request',
-  }).catch((err) => console.error('ServiceBus payment trigger failed', err));
+  }).catch((err) => process.stderr.write(JSON.stringify({ level: 'error', service: 'payment-service', ts: new Date().toISOString(), msg: 'ServiceBus payment trigger failed', error: (err as Error).message }) + '\n'));
 
   // 5. Return 202
   return res.status(202).json({

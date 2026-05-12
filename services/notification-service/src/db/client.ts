@@ -9,5 +9,5 @@ export const db = new Pool({
 });
 
 db.on('error', (err) => {
-  console.error('Unexpected error on idle pg client', err);
+  process.stderr.write(JSON.stringify({ level: 'error', service: 'notification-service', ts: new Date().toISOString(), msg: 'Unexpected error on idle pg client', error: (err as Error).message }) + '\n');
 });

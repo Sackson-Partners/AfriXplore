@@ -12,6 +12,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
+const log = {
+  info:  (msg: string) => process.stdout.write(JSON.stringify({ level: 'info',  service: 'payment-service', ts: new Date().toISOString(), msg }) + '\n'),
+  error: (msg: string, ctx?: object) => process.stderr.write(JSON.stringify({ level: 'error', service: 'payment-service', ts: new Date().toISOString(), msg, ...ctx }) + '\n'),
+};
+
 router.post('/', async (req: Request, res: Response) => {
   const signature = req.headers['stripe-signature'];
 
@@ -24,7 +29,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
   } catch (err) {
-    console.error('Stripe webhook signature failed:', err);
+    log.error('Stripe webhook signature failed', { error: (err as Error).message });
     return res.status(400).json({ error: 'Webhook signature verification failed' });
   }
 
@@ -33,7 +38,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     await handleStripeEvent(event);
   } catch (error) {
-    console.error(`Error processing Stripe event ${event.type}:`, error);
+    log.error(`Error processing Stripe event ${event.type}`, { error: (error as Error).message });
   }
 });
 
@@ -67,7 +72,7 @@ async function handleStripeEvent(event: Stripe.Event) {
         periodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
       });
 
-      console.log(`Subscription created: ${subscription.id}`);
+      log.info(`Subscription created: ${subscription.id}`);
       break;
     }
 
@@ -100,7 +105,7 @@ async function handleStripeEvent(event: Stripe.Event) {
 
     case 'invoice.payment_failed': {
       const invoice = event.data.object as Stripe.Invoice;
-      console.error(`Payment failed for customer ${invoice.customer}`);
+      log.error(`Payment failed for customer ${invoice.customer}`);
 
       await publishToServiceBus('subscription-changed', {
         event: 'payment_failed',
@@ -111,7 +116,7 @@ async function handleStripeEvent(event: Stripe.Event) {
     }
 
     default:
-      console.log(`Unhandled Stripe event: ${event.type}`);
+      log.info(`Unhandled Stripe event: ${event.type}`);
   }
 }
 

@@ -3,7 +3,7 @@ import { ServiceBusClient } from '@azure/service-bus';
 export async function publishToServiceBus(topic: string, message: object): Promise<void> {
   const connectionString = process.env.SERVICE_BUS_CONNECTION_STRING;
   if (!connectionString) {
-    console.warn('SERVICE_BUS_CONNECTION_STRING not set, skipping publish');
+    process.stderr.write(JSON.stringify({ level: 'warn', service: 'payment-service', ts: new Date().toISOString(), msg: 'SERVICE_BUS_CONNECTION_STRING not set, skipping publish' }) + '\n');
     return;
   }
 

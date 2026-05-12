@@ -7,6 +7,11 @@ const CONNECTION_STRING = process.env.SERVICE_BUS_CONNECTION_STRING!;
 const TOPIC = 'payment-triggered';
 const SUBSCRIPTION = 'payment-service';
 
+const log = {
+  info:  (msg: string, ctx?: object) => process.stdout.write(JSON.stringify({ level: 'info',  service: 'payment-service', ts: new Date().toISOString(), msg, ...ctx }) + '\n'),
+  error: (msg: string, ctx?: object) => process.stderr.write(JSON.stringify({ level: 'error', service: 'payment-service', ts: new Date().toISOString(), msg, ...ctx }) + '\n'),
+};
+
 class PaymentConsumer {
   private client: ServiceBusClient | null = null;
 
@@ -14,7 +19,7 @@ class PaymentConsumer {
     this.client = new ServiceBusClient(CONNECTION_STRING);
     const receiver = this.client.createReceiver(TOPIC, SUBSCRIPTION, { receiveMode: 'peekLock' });
 
-    console.log('Payment consumer started — listening for payment events');
+    log.info('Payment consumer started — listening for payment events');
 
     receiver.subscribe({
       processMessage: async (message: ServiceBusReceivedMessage) => {
@@ -22,7 +27,7 @@ class PaymentConsumer {
         await receiver.completeMessage(message);
       },
       processError: async (error) => {
-        console.error('Payment consumer error:', error.error);
+        log.error('Payment consumer error', { error: error.error?.message });
       },
     });
   }
@@ -38,7 +43,7 @@ class PaymentConsumer {
       retry?: number;
     };
 
-    console.log(`Processing payment: ${body.type} for scout ${body.scoutId}`);
+    log.info(`Processing payment: ${body.type} for scout ${body.scoutId}`);
 
     try {
       const scoutResult = await db.query(
@@ -47,7 +52,7 @@ class PaymentConsumer {
       );
 
       if (scoutResult.rows.length === 0) {
-        console.error(`Scout ${body.scoutId} not found or inactive`);
+        log.error(`Scout ${body.scoutId} not found or inactive`);
         return;
       }
 
@@ -80,15 +85,15 @@ class PaymentConsumer {
           provider,
           reference: result.providerReference,
         });
-        console.log(`Payment ${paymentId} disbursed: ${result.providerReference}`);
+        log.info(`Payment ${paymentId} disbursed: ${result.providerReference}`);
       } else {
-        console.error(`Payment ${paymentId} failed: ${result.errorMessage}`);
+        log.error(`Payment ${paymentId} failed: ${result.errorMessage}`);
         if ((body.retry || 0) < 3) {
           await publishToServiceBus(TOPIC, { ...body, retry: (body.retry || 0) + 1, lastError: result.errorMessage });
         }
       }
     } catch (error) {
-      console.error('Payment processing error:', error);
+      log.error('Payment processing error', { error: (error as Error).message });
     }
   }
 

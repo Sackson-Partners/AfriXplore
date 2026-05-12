@@ -6,7 +6,7 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
-  console.error('Unhandled error:', err);
+  process.stderr.write(JSON.stringify({ level: 'error', service: 'scout-api', ts: new Date().toISOString(), msg: 'Unhandled error', error: err.message }) + '\n');
 
   return res.status(500).json({
     type: 'https://afrixplore.io/errors/internal',
