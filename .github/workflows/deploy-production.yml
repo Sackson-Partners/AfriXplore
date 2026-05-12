@@ -280,7 +280,9 @@ jobs:
           # Build secrets array — skip any that are empty (GitHub secret not set)
           add_secret() {
             local name=$1 value=$2
-            [ -n "$value" ] && SECRETS="$SECRETS $name=$value"
+            if [ -n "$value" ]; then
+              SECRETS="$SECRETS $name=$value"
+            fi
           }
 
           SECRETS=""
