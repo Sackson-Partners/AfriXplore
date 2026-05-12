@@ -8,11 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY services/geospatial-worker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
-COPY src/ ./src/
+COPY services/geospatial-worker/src/ ./src/
 
 # Non-root user
 RUN useradd -r -u 1001 appuser && chown -R appuser /app
