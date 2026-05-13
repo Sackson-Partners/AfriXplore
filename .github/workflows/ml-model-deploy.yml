@@ -293,7 +293,7 @@ jobs:
           fi
 
       - name: Create GitHub deployment record
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         if: needs.run-ml-pipeline.outputs.model_deployed == 'true'
         with:
           script: |
