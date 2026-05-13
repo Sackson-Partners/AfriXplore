@@ -471,6 +471,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [post-deploy-health, deploy-vercel-production]
     if: always() && needs.post-deploy-health.result == 'success'
+    continue-on-error: true
     steps:
       - name: Azure Login
         uses: azure/login@v2
