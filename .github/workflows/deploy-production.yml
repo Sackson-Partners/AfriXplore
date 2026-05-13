@@ -143,6 +143,40 @@ jobs:
           create_sub payment-triggered   notification-service 3
           create_sub mineral-assessed    intelligence-dpi    5
 
+      # Grant AcrPull so every Container App can pull images using its managed identity.
+      # Required when an app is freshly created (new identity, no existing role assignment).
+      - name: Grant Container Apps AcrPull on ACR (idempotent)
+        continue-on-error: true
+        run: |
+          ACR_ID=$(az acr show \
+            --name crafrixplorestaging \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query id -o tsv 2>/dev/null || echo "")
+          if [ -z "$ACR_ID" ]; then echo "ACR not found — skipping"; exit 0; fi
+
+          ROLE_ID="7f951dda-4ed3-4680-a7ca-43fe172d538d"  # AcrPull
+          for APP in \
+            ca-scout-api-${{ env.ENVIRONMENT }} \
+            ca-intelligence-api-${{ env.ENVIRONMENT }} \
+            ca-msim-api-${{ env.ENVIRONMENT }} \
+            ca-notification-${{ env.ENVIRONMENT }} \
+            ca-payment-${{ env.ENVIRONMENT }} \
+            ca-ai-inference-${{ env.ENVIRONMENT }} \
+            ca-geo-worker-${{ env.ENVIRONMENT }}; do
+            PRINCIPAL=$(az containerapp show \
+              --name "$APP" \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+            if [ -n "$PRINCIPAL" ]; then
+              az role assignment create \
+                --assignee-object-id "$PRINCIPAL" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$ROLE_ID" \
+                --scope "$ACR_ID" \
+                2>/dev/null || echo "  $APP AcrPull already assigned (skip)"
+            fi
+          done
+
       # Role assignments require User Access Administrator on the Key Vault scope.
       # If the SP already has the role, this is a no-op; errors are suppressed.
       - name: Grant Container Apps access to Key Vault (idempotent)
