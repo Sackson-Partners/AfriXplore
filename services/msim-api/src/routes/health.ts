@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '@ain/database';
 import * as os from 'os';
+import { getAllCircuitBreakerHealth } from '../services/external-services.js';
+import { authenticateMetrics } from '../middleware/metricsAuth.js';
 
 const router = Router();
 
@@ -36,8 +38,11 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
 });
 
 // GET /health/metrics — process metrics for monitoring
-router.get('/metrics', (_req: Request, res: Response): void => {
+// Protected by authentication in production
+router.get('/metrics', authenticateMetrics, (_req: Request, res: Response): void => {
   const mem = process.memoryUsage();
+  const circuitBreakers = getAllCircuitBreakerHealth();
+
   res.status(200).json({
     uptime_seconds: process.uptime(),
     memory: {
@@ -47,6 +52,7 @@ router.get('/metrics', (_req: Request, res: Response): void => {
     },
     cpu_count: os.cpus().length,
     node_version: process.version,
+    circuit_breakers: circuitBreakers,
     timestamp: new Date().toISOString(),
   });
 });

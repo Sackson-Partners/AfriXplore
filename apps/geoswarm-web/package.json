@@ -1,0 +1,35 @@
+{
+  "name": "@ain/geoswarm-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3004",
+    "build": "next build",
+    "start": "next start -p 3004",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@azure/msal-browser": "^5.9.0",
+    "@azure/msal-react": "^5.3.2",
+    "@heroicons/react": "^2.2.0",
+    "@mapbox/mapbox-gl-draw": "^1.5.1",
+    "@tanstack/react-query": "^5.100.6",
+    "@types/mapbox-gl": "^3.5.0",
+    "mapbox-gl": "^3.23.0",
+    "next": "16.2.10",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@ain/types": "workspace:^",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

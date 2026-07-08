@@ -1,9 +1,11 @@
 import { AzureOpenAI } from 'openai';
 import { DefaultAzureCredential, getBearerTokenProvider } from '@azure/identity';
+import { ServiceBusClient } from '@azure/service-bus';
 import { getPool } from '@ain/database';
 import { downloadDocument, uploadDocument } from './storage.service.js';
 import { extractTextFromUrl, extractText } from './ocr.service.js';
 import { geocodeFirstMatch } from './geo.service.js';
+import { retryWithBackoff } from '../utils/retry.js';
 import type { ExtractedRecord, IngestionRequest, IngestionResult } from './types.js';
 
 // ── Azure OpenAI client ──────────────────────────────────────────────────────
@@ -32,6 +34,51 @@ function getOpenAIClient(): AzureOpenAI {
   return openaiClient;
 }
 
+// ── Cost tracking ─────────────────────────────────────────────────────────────
+
+interface OpenAICostTracker {
+  sessionTotalUsd: number;
+  callCount: number;
+}
+
+const costTracker: OpenAICostTracker = {
+  sessionTotalUsd: 0,
+  callCount: 0,
+};
+
+// GPT-4 pricing (as of 2024)
+const GPT4_INPUT_PRICE_PER_1K = 0.03;
+const GPT4_OUTPUT_PRICE_PER_1K = 0.06;
+
+function logOpenAICost(
+  documentId: string,
+  model: string,
+  promptTokens: number,
+  completionTokens: number
+): void {
+  const inputCost = (promptTokens / 1000) * GPT4_INPUT_PRICE_PER_1K;
+  const outputCost = (completionTokens / 1000) * GPT4_OUTPUT_PRICE_PER_1K;
+  const totalCost = inputCost + outputCost;
+
+  costTracker.sessionTotalUsd += totalCost;
+  costTracker.callCount += 1;
+
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      service: 'msim-api',
+      event: 'openai_call',
+      documentId,
+      model,
+      promptTokens,
+      completionTokens,
+      costUsd: totalCost.toFixed(4),
+      sessionTotalUsd: costTracker.sessionTotalUsd.toFixed(4),
+      sessionCallCount: costTracker.callCount,
+    })
+  );
+}
+
 // ── Structured extraction via GPT-4 ─────────────────────────────────────────
 
 const EXTRACTION_SYSTEM_PROMPT = `You are an expert historian specialising in colonial African mining records.
@@ -58,23 +105,50 @@ Extract structured data from the provided text and return a JSON object matching
 }
 Return only valid JSON. Do not include markdown fences.`;
 
-async function extractStructuredData(text: string): Promise<ExtractedRecord> {
+async function extractStructuredData(text: string, documentId: string): Promise<ExtractedRecord> {
   const client = getOpenAIClient();
   const deploymentName = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o';
 
-  const response = await client.chat.completions.create({
-    model: deploymentName,
-    messages: [
-      { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `Extract structured mining record data from this text:\n\n${text.slice(0, 12000)}`,
-      },
-    ],
-    temperature: 0,
-    max_tokens: 2000,
-    response_format: { type: 'json_object' },
-  });
+  // Get configurable character limit (default 12000)
+  const maxChars = parseInt(process.env.OPENAI_MAX_DOCUMENT_CHARS ?? '12000', 10);
+  const truncatedText = text.slice(0, maxChars);
+
+  const estimatedInputTokens = Math.ceil(truncatedText.length / 4);
+  console.log(
+    `[OpenAI] Starting extraction for document ${documentId}, ` +
+    `estimated input tokens: ${estimatedInputTokens}, model: ${deploymentName}`
+  );
+
+  // Wrap in retry logic
+  const response = await retryWithBackoff(
+    async () => {
+      return await client.chat.completions.create({
+        model: deploymentName,
+        messages: [
+          { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `Extract structured mining record data from this text:\n\n${truncatedText}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+      });
+    },
+    { maxRetries: 3, baseDelayMs: 1000 }
+  );
+
+  // Log actual usage and cost
+  const usage = response.usage;
+  if (usage) {
+    logOpenAICost(
+      documentId,
+      deploymentName,
+      usage.prompt_tokens,
+      usage.completion_tokens
+    );
+  }
 
   const raw = response.choices[0]?.message?.content ?? '{}';
   return JSON.parse(raw) as ExtractedRecord;
@@ -96,6 +170,207 @@ async function findClosestMine(locationHints: string[]): Promise<string | null> 
   );
 
   return result.rows[0]?.id ?? null;
+}
+
+// ── Service Bus retry queue ──────────────────────────────────────────────────
+
+interface RetryQueueItem {
+  topic: string;
+  message: any;
+  attempts: number;
+  lastError: string;
+  timestamp: string;
+}
+
+const serviceBusRetryQueue: RetryQueueItem[] = [];
+const MAX_RETRY_QUEUE_SIZE = 100;
+
+// Process retry queue every 30 seconds
+setInterval(async () => {
+  if (serviceBusRetryQueue.length === 0) return;
+
+  console.log(`[ServiceBus] Processing retry queue (${serviceBusRetryQueue.length} items)`);
+
+  const item = serviceBusRetryQueue.shift();
+  if (!item) return;
+
+  try {
+    await publishToServiceBus(item.topic, item.message);
+    console.log(`[ServiceBus] Retry successful for topic ${item.topic}`);
+  } catch (err) {
+    item.attempts += 1;
+    item.lastError = String(err);
+
+    if (item.attempts < 3) {
+      // Re-queue for another attempt
+      serviceBusRetryQueue.push(item);
+      console.log(`[ServiceBus] Retry failed (attempt ${item.attempts}/3), re-queued`);
+    } else {
+      // Max retries exceeded - log and drop
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'msim-api',
+          event: 'servicebus_retry_exhausted',
+          topic: item.topic,
+          attempts: item.attempts,
+          lastError: item.lastError,
+          messageDropped: true,
+        })
+      );
+    }
+  }
+}, 30000);
+
+async function publishToServiceBus(topic: string, message: any): Promise<void> {
+  const sbConn = process.env.SERVICE_BUS_CONNECTION_STRING;
+  if (!sbConn) {
+    console.warn('[ServiceBus] CONNECTION_STRING not set, skipping publish');
+    return;
+  }
+
+  const sbClient = new ServiceBusClient(sbConn);
+  const sender = sbClient.createSender(topic);
+
+  try {
+    await sender.sendMessages({
+      body: message,
+      contentType: 'application/json',
+    });
+  } finally {
+    await sender.close();
+    await sbClient.close();
+  }
+}
+
+async function publishToServiceBusWithRetry(topic: string, message: any): Promise<void> {
+  try {
+    await publishToServiceBus(topic, message);
+  } catch (err) {
+    console.error(`[ServiceBus] Publish to ${topic} failed:`, String(err));
+
+    // Add to retry queue
+    if (serviceBusRetryQueue.length >= MAX_RETRY_QUEUE_SIZE) {
+      const dropped = serviceBusRetryQueue.shift();
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'msim-api',
+          event: 'servicebus_queue_overflow',
+          droppedTopic: dropped?.topic,
+          messageDropped: true,
+        })
+      );
+    }
+
+    serviceBusRetryQueue.push({
+      topic,
+      message,
+      attempts: 1,
+      lastError: String(err),
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log(`[ServiceBus] Message queued for retry (queue size: ${serviceBusRetryQueue.length})`);
+  }
+}
+
+// ── Dead letter queue ─────────────────────────────────────────────────────────
+
+async function sendToDeadLetterQueue(
+  documentId: string,
+  originalMessageId: string,
+  failureReason: string,
+  attemptCount: number,
+  lastError: string
+): Promise<void> {
+  const message = {
+    documentId,
+    originalMessageId,
+    failureReason,
+    failureTimestamp: new Date().toISOString(),
+    attemptCount,
+    lastError,
+  };
+
+  await publishToServiceBusWithRetry('document-ingestion-deadletter', message);
+
+  // Also update document status in database
+  try {
+    const pool = getPool();
+    await pool.query(
+      `UPDATE msim_documents SET status = 'failed', error_message = $1, updated_at = NOW()
+       WHERE blob_name = $2`,
+      [failureReason, documentId]
+    );
+
+    console.log(
+      JSON.stringify({
+        level: 'error',
+        service: 'msim-api',
+        event: 'document_ingestion_failed',
+        documentId,
+        failureReason,
+        lastError,
+      })
+    );
+  } catch (dbErr) {
+    console.error(`[DeadLetter] Failed to update document status:`, String(dbErr));
+  }
+}
+
+// ── Materialized view refresh with retry ──────────────────────────────────────
+
+let mvRefreshScheduled = false;
+
+async function refreshMaterializedView(): Promise<void> {
+  if (mvRefreshScheduled) return;
+
+  mvRefreshScheduled = true;
+
+  // Delay refresh by 5 seconds to batch multiple updates
+  setTimeout(async () => {
+    const pool = getPool();
+    const startTime = Date.now();
+
+    try {
+      console.log('[MV] Starting materialized view refresh...');
+
+      // Set statement timeout to 30 seconds
+      await pool.query('SET statement_timeout = 30000');
+
+      const result = await pool.query('SELECT refresh_msim_search_mv()');
+
+      // Get row count
+      const countResult = await pool.query('SELECT COUNT(*) as count FROM msim_search_mv');
+      const rowCount = countResult.rows[0]?.count || 0;
+
+      const duration = Date.now() - startTime;
+
+      console.log(
+        `[MV] Materialized view refreshed successfully, rows: ${rowCount}, duration: ${duration}ms`
+      );
+    } catch (err) {
+      const duration = Date.now() - startTime;
+      const error = err as Error;
+
+      if (duration >= 30000) {
+        console.warn(
+          `[MV] Refresh exceeded 30s timeout (${duration}ms), will complete in background`
+        );
+      } else {
+        console.error(`[MV] Refresh failed after ${duration}ms:`, error.message);
+
+        // Schedule retry in 5 minutes
+        setTimeout(() => {
+          mvRefreshScheduled = false;
+          refreshMaterializedView();
+        }, 5 * 60 * 1000);
+      }
+    } finally {
+      mvRefreshScheduled = false;
+    }
+  }, 5000);
 }
 
 // ── DB insert ────────────────────────────────────────────────────────────────
@@ -149,8 +424,16 @@ async function persistRecord(
     }
   }
 
-  // Fire-and-forget search MV refresh
-  pool.query('SELECT refresh_msim_search_mv()').catch(() => null);
+  // Schedule materialized view refresh (batched)
+  await refreshMaterializedView();
+
+  // Publish event so convergence-engine recomputes the mine's score
+  await publishToServiceBusWithRetry('archive-document-indexed', {
+    record_id: recordId,
+    mine_id: mineId,
+    blob_name: blobName,
+    timestamp: new Date().toISOString(),
+  });
 
   return recordId;
 }
@@ -162,11 +445,12 @@ async function persistRecord(
  *
  * Steps:
  *   1. Download document from blob storage
- *   2. OCR via Azure Document Intelligence
- *   3. Structured extraction via GPT-4
- *   4. Geocode location hints via Azure Maps
+ *   2. OCR via Azure Document Intelligence (with retry)
+ *   3. Structured extraction via GPT-4 (with retry)
+ *   4. Geocode location hints via Azure Maps (with retry)
  *   5. Persist record + extractions to DB
- *   6. Refresh msim_search_mv
+ *   6. Refresh msim_search_mv (batched)
+ *   7. Publish to Service Bus (with retry queue)
  */
 export async function ingestDocument(request: IngestionRequest): Promise<IngestionResult> {
   const errors: string[] = [];
@@ -176,22 +460,34 @@ export async function ingestDocument(request: IngestionRequest): Promise<Ingesti
   let geocoded = null;
 
   try {
-    // Step 1: Download
-    const buffer = await downloadDocument(request.blobName);
+    // Step 1: Download (with retry)
+    const buffer = await retryWithBackoff(
+      async () => await downloadDocument(request.blobName),
+      { maxRetries: 3, baseDelayMs: 1000 }
+    );
 
-    // Step 2: OCR
-    const ocrResult = await extractText(buffer);
+    // Step 2: OCR (with retry)
+    const ocrResult = await retryWithBackoff(
+      async () => await extractText(buffer),
+      { maxRetries: 3, baseDelayMs: 2000 }
+    );
+
     if (!ocrResult.fullText) {
-      errors.push('OCR produced no text');
+      const reason = 'OCR produced no text';
+      errors.push(reason);
+      await sendToDeadLetterQueue(request.blobName, request.blobName, reason, 1, reason);
       return { blobName: request.blobName, mineId, recordId, extractedRecord: {} as ExtractedRecord, geocoded, status: 'failed', errors };
     }
 
-    // Step 3: Structured extraction
-    extracted = await extractStructuredData(ocrResult.fullText);
+    // Step 3: Structured extraction (with retry)
+    extracted = await extractStructuredData(ocrResult.fullText, request.blobName);
 
-    // Step 4: Geocode
+    // Step 4: Geocode (with retry, non-fatal)
     if (extracted.locationHints?.length) {
-      geocoded = await geocodeFirstMatch(extracted.locationHints).catch((err: unknown) => {
+      geocoded = await retryWithBackoff(
+        async () => await geocodeFirstMatch(extracted!.locationHints!),
+        { maxRetries: 2, baseDelayMs: 1000 }
+      ).catch((err: unknown) => {
         errors.push(`Geocoding failed: ${String(err)}`);
         return null;
       });
@@ -200,13 +496,25 @@ export async function ingestDocument(request: IngestionRequest): Promise<Ingesti
     // Step 5: Find mine + persist
     mineId = await findClosestMine(extracted.locationHints ?? []);
     if (!mineId) {
-      errors.push('No matching historical_mine found — record not persisted');
+      const reason = 'No matching historical_mine found — record not persisted';
+      errors.push(reason);
       return { blobName: request.blobName, mineId, recordId, extractedRecord: extracted, geocoded, status: 'partial', errors };
     }
 
     recordId = await persistRecord(extracted, mineId, request.blobName, request.sourceReference ?? '');
   } catch (err) {
-    errors.push(String(err));
+    const errorMessage = String(err);
+    errors.push(errorMessage);
+
+    // Send to dead letter queue after retries exhausted
+    await sendToDeadLetterQueue(
+      request.blobName,
+      request.blobName,
+      'Ingestion pipeline failed after retries',
+      3,
+      errorMessage
+    );
+
     return {
       blobName: request.blobName,
       mineId,

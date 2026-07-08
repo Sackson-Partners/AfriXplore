@@ -1,11 +1,11 @@
 'use client';
 
-import { useIsAuthenticated } from '@azure/msal-react';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 export default function ExportPage() {
-  const isAuthenticated = useIsAuthenticated();
+  const isAuthenticated = useAuth();
   const router = useRouter();
   const [format, setFormat] = useState<'geojson' | 'csv'>('geojson');
   const [country, setCountry] = useState('');

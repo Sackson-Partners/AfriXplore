@@ -1,0 +1,16 @@
+id,name,country,region,commodity,latitude,longitude,mining_period,estimated_depth_m,dpi_score,created_at
+550e8400-e29b-41d4-a716-446655440001,Chuquicamata,Chile,Antofagasta,Copper,-22.2969,-68.9031,1910-Present,1000,8.5,2020-01-15T10:30:00Z
+550e8400-e29b-41d4-a716-446655440002,Grasberg,Indonesia,Papua,Gold/Copper,-4.0533,137.1164,1990-Present,1500,9.2,2020-02-20T14:45:00Z
+550e8400-e29b-41d4-a716-446655440003,Oyu Tolgoi,Mongolia,South Gobi,Copper/Gold,43.0033,106.8503,2013-Present,1300,7.8,2020-03-10T09:15:00Z
+550e8400-e29b-41d4-a716-446655440004,Bingham Canyon,United States,Utah,Copper,40.5230,-112.1508,1906-Present,1200,8.9,2020-04-05T11:20:00Z
+550e8400-e29b-41d4-a716-446655440005,Escondida,Chile,Antofagasta,Copper,-24.2678,-69.0489,1990-Present,800,8.7,2020-05-12T16:00:00Z
+550e8400-e29b-41d4-a716-446655440006,Collahuasi,Chile,Tarapaca,Copper,-20.9667,-68.6833,1999-Present,950,7.5,2020-06-18T13:30:00Z
+550e8400-e29b-41d4-a716-446655440007,Kalgoorlie Super Pit,Australia,Western Australia,Gold,-30.7756,121.5003,1893-Present,600,6.9,2020-07-22T08:45:00Z
+550e8400-e29b-41d4-a716-446655440008,Mirny,Russia,Sakha Republic,Diamond,62.5267,113.9856,1957-2011,525,5.2,2020-08-14T10:10:00Z
+550e8400-e29b-41d4-a716-446655440009,Muruntau,Uzbekistan,Qizilqum Desert,Gold,41.6931,64.5853,1967-Present,900,7.1,2020-09-09T15:25:00Z
+550e8400-e29b-41d4-a716-446655440010,Jwaneng,Botswana,Southern District,Diamond,-24.5992,24.5997,1982-Present,400,6.5,2020-10-03T12:40:00Z
+550e8400-e29b-41d4-a716-446655440011,Cerro Verde,Peru,Arequipa,Copper,-16.5167,-71.6000,1976-Present,750,7.9,2020-11-11T09:55:00Z
+550e8400-e29b-41d4-a716-446655440012,Antamina,Peru,Ancash,Copper/Zinc,-9.3667,-77.1167,2001-Present,850,8.1,2020-12-07T14:30:00Z
+550e8400-e29b-41d4-a716-446655440013,Los Pelambres,Chile,Coquimbo,Copper,-31.7833,-70.5000,2000-Present,700,7.6,2021-01-19T11:15:00Z
+550e8400-e29b-41d4-a716-446655440014,Olympic Dam,Australia,South Australia,Copper/Uranium,-30.4400,136.8800,1988-Present,1100,8.3,2021-02-25T16:50:00Z
+550e8400-e29b-41d4-a716-446655440015,Boddington,Australia,Western Australia,Gold,-32.8000,116.4667,2009-Present,450,6.8,2021-03-30T10:05:00Z

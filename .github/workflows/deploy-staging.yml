@@ -10,13 +10,64 @@ permissions:
   contents: read
 
 env:
-  AZURE_CONTAINER_REGISTRY: cracaindev.azurecr.io
-  RESOURCE_GROUP: rg-ain-dev
-  CONTAINER_APP_NAME: ca-msim-api-staging
+  ACR: cracaindev.azurecr.io
+  RG: rg-ain-dev
 
 jobs:
+  pre-deploy-checks:
+    name: Pre-Deploy Safety Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Block deployment if DEV_BYPASS_AUTH is enabled
+        run: |
+          if grep -r "DEV_BYPASS_AUTH.*=.*true" .env* 2>/dev/null; then
+            echo "::error::FATAL: DEV_BYPASS_AUTH=true found in .env files - this is a security vulnerability in staging/production"
+            exit 1
+          fi
+          echo "✓ No DEV_BYPASS_AUTH=true found in .env files"
+
+  build:
+    name: Build & Push Images
+    needs: pre-deploy-checks
+    runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name cracaindev
+
+      - name: Build msim-api
+        run: |
+          docker build -f services/msim-api/Dockerfile \
+            -t "${{ env.ACR }}/msim-api:${{ github.sha }}" .
+          docker push "${{ env.ACR }}/msim-api:${{ github.sha }}"
+
+      - name: Build geoswarm-api
+        run: |
+          docker build -f services/geoswarm-api/Dockerfile \
+            -t "${{ env.ACR }}/geoswarm-api:${{ github.sha }}" .
+          docker push "${{ env.ACR }}/geoswarm-api:${{ github.sha }}"
+
+      - name: Build convergence-engine
+        run: |
+          docker build -f services/convergence-engine/Dockerfile \
+            -t "${{ env.ACR }}/convergence-engine:${{ github.sha }}" .
+          docker push "${{ env.ACR }}/convergence-engine:${{ github.sha }}"
+
   deploy:
     name: Deploy to Staging
+    needs: build
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -29,36 +80,45 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Azure Container Registry
-        run: az acr login --name cracaindev
-
-      - name: Build and push Docker image
-        run: |
-          IMAGE_TAG="${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
-          docker build -f services/msim-api/Dockerfile -t "$IMAGE_TAG" .
-          docker push "$IMAGE_TAG"
-
       - name: Run DB migrations
         run: |
           az containerapp job start \
             --name ca-db-migrate-staging \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
+            --resource-group ${{ env.RG }} \
+            --image "${{ env.ACR }}/msim-api:${{ github.sha }}"
 
-      - name: Deploy to staging Container App
+      - name: Deploy msim-api
         run: |
           az containerapp update \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image "${{ env.AZURE_CONTAINER_REGISTRY }}/msim-api:${{ github.sha }}"
+            --name ca-msim-api-staging \
+            --resource-group ${{ env.RG }} \
+            --image "${{ env.ACR }}/msim-api:${{ github.sha }}"
 
-      - name: Wait for rollout
-        run: sleep 30
-
-      - name: Health check
+      - name: Deploy geoswarm-api
         run: |
-          FQDN=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query properties.configuration.ingress.fqdn -o tsv)
-          curl --fail "https://${FQDN}/health/ready" || exit 1
+          az containerapp update \
+            --name ca-geoswarm-api-staging \
+            --resource-group ${{ env.RG }} \
+            --image "${{ env.ACR }}/geoswarm-api:${{ github.sha }}"
+
+      - name: Deploy convergence-engine
+        run: |
+          az containerapp update \
+            --name ca-convergence-staging \
+            --resource-group ${{ env.RG }} \
+            --image "${{ env.ACR }}/convergence-engine:${{ github.sha }}"
+
+      - name: Health checks
+        run: |
+          for SVC in ca-msim-api-staging ca-geoswarm-api-staging ca-convergence-staging; do
+            FQDN=$(az containerapp show \
+              --name "$SVC" \
+              --resource-group ${{ env.RG }} \
+              --query properties.configuration.ingress.fqdn -o tsv)
+            echo "Checking $SVC at https://${FQDN}/health/ready"
+            for i in 1 2 3 4 5; do
+              curl --fail --silent "https://${FQDN}/health/ready" && echo " OK" && break
+              echo " attempt $i failed, retrying in 10s..."
+              sleep 10
+            done
+          done

@@ -1,6 +1,6 @@
 'use client';
 
-import { useIsAuthenticated } from '@azure/msal-react';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
@@ -9,7 +9,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '';
 
 export default function MapPage() {
-  const isAuthenticated = useIsAuthenticated();
+  const isAuthenticated = useAuth();
   const router = useRouter();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
