@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from './verify.js';
 import { DecodedToken, InvalidTokenError, TokenExpiredError } from './types.js';
+import { featureFlags } from '@ain/config';
 
 // Extend Express Request to carry the decoded token
 declare global {
@@ -30,6 +31,13 @@ function forbidden(res: Response, detail: string): void {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  // Dev bypass: Use feature flags module for safe auth bypass in local development
+  if (featureFlags.bypassAuth()) {
+    req.user = { sub: 'dev', roles: ['admin'], email: 'dev@local' } as DecodedToken;
+    next();
+    return;
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     unauthorized(res, 'Authorization header is required');
@@ -66,6 +74,7 @@ export function requireRole(...roles: string[]) {
 
 export function requireTier(...tiers: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    if (featureFlags.bypassAuth()) { next(); return; }
     const tier = req.user?.extension_tier;
     if (!tier || !tiers.includes(tier)) {
       forbidden(res, `Requires subscription tier: ${tiers.join(' or ')}`);

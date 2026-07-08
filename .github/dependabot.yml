@@ -1,0 +1,188 @@
+# Dependabot configuration for automated dependency updates
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Root workspace
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Group development dependencies
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group TypeScript and types
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+
+  # Services
+  - package-ecosystem: "npm"
+    directory: "/services/msim-api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "msim-api"
+    commit-message:
+      prefix: "chore(deps/msim-api)"
+    groups:
+      azure-dependencies:
+        patterns:
+          - "@azure/*"
+      security-dependencies:
+        patterns:
+          - "helmet"
+          - "cors"
+          - "express-rate-limit"
+          - "csurf"
+          - "opossum"
+
+  - package-ecosystem: "npm"
+    directory: "/services/geoswarm-api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "geoswarm-api"
+    commit-message:
+      prefix: "chore(deps/geoswarm-api)"
+
+  # Apps
+  - package-ecosystem: "npm"
+    directory: "/apps/platform-web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "platform-web"
+    commit-message:
+      prefix: "chore(deps/platform-web)"
+    groups:
+      next-dependencies:
+        patterns:
+          - "next"
+          - "react"
+          - "react-dom"
+      mapbox-dependencies:
+        patterns:
+          - "mapbox-gl"
+          - "@mapbox/*"
+          - "react-map-gl"
+          - "@deck.gl/*"
+
+  - package-ecosystem: "npm"
+    directory: "/apps/admin-web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "admin-web"
+    commit-message:
+      prefix: "chore(deps/admin-web)"
+
+  - package-ecosystem: "npm"
+    directory: "/apps/geoswarm-web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "geoswarm-web"
+    commit-message:
+      prefix: "chore(deps/geoswarm-web)"
+
+  # Packages
+  - package-ecosystem: "npm"
+    directory: "/packages/auth"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "packages"
+    commit-message:
+      prefix: "chore(deps/auth)"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/security"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "packages"
+      - "security"
+    commit-message:
+      prefix: "chore(deps/security)"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/database"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "packages"
+    commit-message:
+      prefix: "chore(deps/database)"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/validation"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "packages"
+    commit-message:
+      prefix: "chore(deps/validation)"

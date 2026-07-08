@@ -1,6 +1,6 @@
 'use client';
 
-import { useIsAuthenticated } from '@azure/msal-react';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -46,15 +46,15 @@ async function submitIngestion(file: File, sourceReference: string): Promise<{ j
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-700',
-  processing: 'bg-blue-100 text-blue-700',
-  success: 'bg-green-100 text-green-700',
-  partial: 'bg-orange-100 text-orange-700',
-  failed: 'bg-red-100 text-red-700',
+  pending: 'bg-yellow-900/30 text-yellow-400',
+  processing: 'bg-blue-900/30 text-blue-400',
+  success: 'bg-signal-low/20 text-signal-low',
+  partial: 'bg-orange-900/30 text-orange-400',
+  failed: 'bg-signal-critical/20 text-signal-critical',
 };
 
 export default function IngestionPage() {
-  const isAuthenticated = useIsAuthenticated();
+  const isAuthenticated = useAdminAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -64,13 +64,13 @@ export default function IngestionPage() {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) router.push('/');
+    if (isAuthenticated === false) router.push('/');
   }, [isAuthenticated, router]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-ingestion-jobs', page],
     queryFn: () => fetchJobs(page),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated === true,
     refetchInterval: 10000, // poll every 10s to reflect processing status
   });
 
@@ -98,38 +98,38 @@ export default function IngestionPage() {
     mutation.mutate({ file, ref: sourceRef });
   }
 
-  if (!isAuthenticated) return null;
+  if (isAuthenticated !== true) return null;
 
   return (
     <div className="flex">
       <Sidebar />
-      <main className="flex-1 p-8 bg-gray-50 min-h-screen">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Document Ingestion</h2>
+      <main className="flex-1 p-8 bg-geo-obsidian min-h-screen">
+        <h2 className="text-2xl font-bold text-geo-white mb-6">Document Ingestion</h2>
 
         {/* Upload form */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8 max-w-lg">
-          <h3 className="font-semibold text-gray-900 mb-4">Upload Document</h3>
+        <div className="bg-geo-slate rounded-xl border border-geo-steel p-6 mb-8 max-w-lg">
+          <h3 className="font-semibold text-geo-white mb-4">Upload Document</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Document file (PDF, image)</label>
+              <label className="block text-sm font-medium text-geo-cloud mb-1">Document file (PDF, image)</label>
               <input
                 ref={fileRef}
                 type="file"
                 accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp"
-                className="block w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                className="block w-full text-sm text-geo-cloud file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-amber-900/20 file:text-amber-400 hover:file:bg-amber-900/30 bg-geo-graphite placeholder-geo-mist"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Source reference (optional)</label>
+              <label className="block text-sm font-medium text-geo-cloud mb-1">Source reference (optional)</label>
               <input
                 type="text"
                 value={sourceRef}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSourceRef(e.target.value)}
                 placeholder="e.g. BRGM Report 1952, Colonial Survey Archive"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full border border-geo-steel rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-geo-graphite text-geo-cloud placeholder-geo-mist"
               />
             </div>
-            {uploadError && <p className="text-red-500 text-sm">{uploadError}</p>}
+            {uploadError && <p className="text-signal-critical text-sm">{uploadError}</p>}
             {uploadSuccess && <p className="text-green-600 text-sm">{uploadSuccess}</p>}
             <button
               type="submit"
@@ -142,35 +142,35 @@ export default function IngestionPage() {
         </div>
 
         {/* Jobs table */}
-        <h3 className="font-semibold text-gray-900 mb-3">Ingestion Jobs</h3>
-        {isLoading && <p className="text-gray-500">Loading…</p>}
+        <h3 className="font-semibold text-geo-white mb-3">Ingestion Jobs</h3>
+        {isLoading && <p className="text-geo-mist">Loading…</p>}
         {data && (
           <>
-            <p className="text-sm text-gray-500 mb-3">{data.total} jobs</p>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <p className="text-sm text-geo-mist mb-3">{data.total} jobs</p>
+            <div className="bg-geo-slate rounded-xl border border-geo-steel overflow-hidden">
               <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-geo-graphite border-b border-geo-steel">
                   <tr>
                     {['Blob', 'Source Reference', 'Status', 'Record ID', 'Errors', 'Submitted'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                      <th key={h} className="text-left px-4 py-3 text-xs font-medium text-geo-mist uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-geo-steel/30">
                   {data.data.map((job) => (
-                    <tr key={job.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-700 font-mono text-xs max-w-xs truncate">{job.blob_name}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">{job.source_reference ?? '—'}</td>
+                    <tr key={job.id} className="hover:bg-geo-graphite/50">
+                      <td className="px-4 py-3 text-geo-cloud font-mono text-xs max-w-xs truncate">{job.blob_name}</td>
+                      <td className="px-4 py-3 text-geo-mist text-xs max-w-xs truncate">{job.source_reference ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[job.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[job.status] ?? 'bg-geo-graphite text-geo-mist'}`}>
                           {job.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">{job.record_id ? job.record_id.slice(0, 8) + '…' : '—'}</td>
-                      <td className="px-4 py-3 text-red-500 text-xs max-w-xs truncate">
+                      <td className="px-4 py-3 text-geo-mist font-mono text-xs">{job.record_id ? job.record_id.slice(0, 8) + '…' : '—'}</td>
+                      <td className="px-4 py-3 text-signal-critical text-xs max-w-xs truncate">
                         {job.error_messages?.length ? job.error_messages[0] : '—'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                      <td className="px-4 py-3 text-geo-mist text-xs whitespace-nowrap">
                         {new Date(job.created_at).toLocaleDateString()}
                       </td>
                     </tr>
@@ -180,9 +180,9 @@ export default function IngestionPage() {
             </div>
             <div className="flex gap-2 mt-4 justify-end">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="text-sm px-3 py-1 border border-gray-300 rounded disabled:opacity-40">Previous</button>
+                className="text-sm px-3 py-1 border border-geo-steel rounded bg-geo-graphite text-geo-mist hover:text-geo-white hover:border-geo-mist transition-colors disabled:opacity-30">Previous</button>
               <button onClick={() => setPage((p) => p + 1)} disabled={!data.hasNext}
-                className="text-sm px-3 py-1 border border-gray-300 rounded disabled:opacity-40">Next</button>
+                className="text-sm px-3 py-1 border border-geo-steel rounded bg-geo-graphite text-geo-mist hover:text-geo-white hover:border-geo-mist transition-colors disabled:opacity-30">Next</button>
             </div>
           </>
         )}

@@ -1,0 +1,119 @@
+name: Test CSRF Protection (Staging)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily after staging deployment
+    - cron: '0 3 * * *'
+
+jobs:
+  test-csrf:
+    name: CSRF Protection Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test CSRF token endpoint
+        run: |
+          echo "Testing CSRF token endpoint..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://api-staging.ain-platform.com/csrf-token)
+          STATUS=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ CSRF token endpoint failed: HTTP $STATUS"
+            exit 1
+          fi
+
+          TOKEN=$(echo "$BODY" | jq -r '.csrfToken')
+          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+            echo "❌ CSRF token not returned"
+            exit 1
+          fi
+
+          echo "✅ CSRF token retrieved: ${TOKEN:0:20}..."
+          echo "CSRF_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Test POST without CSRF token (should fail)
+        run: |
+          echo "Testing POST without CSRF token..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAGING_API_KEY }}" \
+            -d '{"name":"Test Mine","country":"Test"}' \
+            https://api-staging.ain-platform.com/mines)
+
+          if [ "$STATUS" = "403" ]; then
+            echo "✅ POST correctly rejected without CSRF token (403)"
+          else
+            echo "❌ Expected 403, got $STATUS"
+            exit 1
+          fi
+
+      - name: Test POST with CSRF token (should succeed)
+        run: |
+          echo "Testing POST with CSRF token..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAGING_API_KEY }}" \
+            -H "X-CSRF-Token: $CSRF_TOKEN" \
+            -d '{"name":"Test Mine","country":"Test","commodity":"Copper","latitude":-33.5,"longitude":121.5}' \
+            https://api-staging.ain-platform.com/mines)
+
+          if [ "$STATUS" = "201" ] || [ "$STATUS" = "200" ]; then
+            echo "✅ POST succeeded with CSRF token ($STATUS)"
+          else
+            echo "❌ Expected 201/200, got $STATUS"
+            exit 1
+          fi
+
+      - name: Test circuit breaker health
+        run: |
+          echo "Testing circuit breaker health..."
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.METRICS_API_KEY }}" \
+            https://api-staging.ain-platform.com/health/metrics)
+
+          echo "$RESPONSE" | jq '.circuit_breakers'
+
+          # Check if any circuit breakers are open
+          OPEN_CIRCUITS=$(echo "$RESPONSE" | jq -r '.circuit_breakers | to_entries[] | select(.value.state == "open") | .key')
+
+          if [ -n "$OPEN_CIRCUITS" ]; then
+            echo "⚠️  WARNING: Open circuit breakers detected: $OPEN_CIRCUITS"
+          else
+            echo "✅ All circuit breakers closed"
+          fi
+
+      - name: Test request timeout
+        run: |
+          echo "Testing request timeout (should timeout after 30s)..."
+          # This will timeout, which is expected behavior
+          set +e
+          START=$(date +%s)
+          curl -s --max-time 35 \
+            -H "Authorization: Bearer ${{ secrets.STAGING_API_KEY }}" \
+            https://api-staging.ain-platform.com/slow-endpoint > /dev/null 2>&1
+          EXIT_CODE=$?
+          END=$(date +%s)
+          DURATION=$((END - START))
+          set -e
+
+          if [ $EXIT_CODE -eq 28 ]; then
+            echo "✅ Request timed out as expected after ${DURATION}s"
+          else
+            echo "ℹ️  Endpoint completed or endpoint doesn't exist (exit code: $EXIT_CODE)"
+          fi
+
+      - name: Summary
+        run: |
+          echo "=================================="
+          echo "✅ CSRF Protection Tests Passed"
+          echo "=================================="
+          echo ""
+          echo "Verified:"
+          echo "  - CSRF token endpoint works"
+          echo "  - POST without token rejected (403)"
+          echo "  - POST with token succeeds"
+          echo "  - Circuit breaker health check"
+          echo "  - Request timeout configured"

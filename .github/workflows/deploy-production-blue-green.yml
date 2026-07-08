@@ -1,0 +1,376 @@
+name: Deploy Production (Blue-Green)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to deploy (e.g., v1.2.3)'
+        required: true
+        type: string
+      traffic_percentage:
+        description: 'Initial traffic percentage (10, 25, 50, 100)'
+        required: false
+        default: '10'
+        type: choice
+        options:
+          - '10'
+          - '25'
+          - '50'
+          - '100'
+
+permissions:
+  id-token: write
+  contents: read
+  deployments: write
+
+env:
+  ACR: cracainprod.azurecr.io
+  RG: rg-ain-prod
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Validate version tag format
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version format. Expected: v1.2.3"
+            exit 1
+          fi
+          echo "✅ Version tag valid: $VERSION"
+
+      - name: Check if version exists
+        run: |
+          if ! git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "::error::Version tag $VERSION does not exist"
+            exit 1
+          fi
+          echo "✅ Version tag exists"
+
+      - name: Security audit
+        run: |
+          pnpm install
+          ./scripts/security-audit.sh
+
+  approve:
+    name: Manual Approval
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://platform.ain-platform.com
+    steps:
+      - name: Deployment approved
+        run: |
+          echo "✅ Deployment to production approved for $VERSION"
+          echo "   Traffic: ${{ inputs.traffic_percentage }}%"
+
+  backup:
+    name: Backup Production Database
+    needs: approve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create database backup
+        run: |
+          echo "Creating production database backup..."
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BACKUP_NAME="pre-deploy-$VERSION-$TIMESTAMP"
+
+          az postgres flexible-server backup create \
+            --resource-group $RG \
+            --name ain-platform-prod \
+            --backup-name $BACKUP_NAME
+
+          echo "✅ Backup created: $BACKUP_NAME"
+          echo "BACKUP_NAME=$BACKUP_NAME" >> $GITHUB_OUTPUT
+
+  build:
+    name: Build Images
+    needs: backup
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ env.VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name cracainprod
+
+      - name: Build and push msim-api
+        run: |
+          docker build -t $ACR/msim-api:$VERSION -f services/msim-api/Dockerfile .
+          docker push $ACR/msim-api:$VERSION
+          echo "✅ msim-api:$VERSION pushed"
+
+      - name: Build and push convergence-engine
+        run: |
+          docker build -t $ACR/convergence-engine:$VERSION -f services/convergence-engine/Dockerfile .
+          docker push $ACR/convergence-engine:$VERSION
+          echo "✅ convergence-engine:$VERSION pushed"
+
+      - name: Build and push geoswarm-api
+        run: |
+          docker build -t $ACR/geoswarm-api:$VERSION -f services/geoswarm-api/Dockerfile .
+          docker push $ACR/geoswarm-api:$VERSION
+          echo "✅ geoswarm-api:$VERSION pushed"
+
+  deploy-green:
+    name: Deploy Green Slot
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      green_url: ${{ steps.deploy.outputs.green_url }}
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to green slot (msim-api)
+        id: deploy
+        run: |
+          # Create or update green slot
+          az webapp deployment slot create \
+            --name app-ain-platform-msim-api-prod \
+            --resource-group $RG \
+            --slot green \
+            --configuration-source app-ain-platform-msim-api-prod \
+            --output none || true
+
+          # Update green slot with new image
+          az webapp config container set \
+            --name app-ain-platform-msim-api-prod \
+            --resource-group $RG \
+            --slot green \
+            --docker-custom-image-name $ACR/msim-api:$VERSION \
+            --docker-registry-server-url https://$ACR \
+            --output none
+
+          # Restart green slot
+          az webapp restart \
+            --name app-ain-platform-msim-api-prod \
+            --resource-group $RG \
+            --slot green \
+            --output none
+
+          GREEN_URL="https://app-ain-platform-msim-api-prod-green.azurewebsites.net"
+          echo "green_url=$GREEN_URL" >> $GITHUB_OUTPUT
+          echo "✅ Green slot deployed"
+
+      - name: Wait for green slot to be ready
+        run: |
+          echo "Waiting for green slot to be ready..."
+          for i in {1..30}; do
+            if curl -sf ${{ steps.deploy.outputs.green_url }}/health/live > /dev/null; then
+              echo "✅ Green slot is ready"
+              exit 0
+            fi
+            echo "  Attempt $i/30 - waiting..."
+            sleep 10
+          done
+          echo "::error::Green slot failed to become ready"
+          exit 1
+
+  smoke-test-green:
+    name: Smoke Test Green Slot
+    needs: deploy-green
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Health check
+        run: |
+          RESPONSE=$(curl -sf ${{ needs.deploy-green.outputs.green_url }}/health/ready)
+          echo "$RESPONSE" | jq .
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.status')
+          if [ "$STATUS" != "ok" ]; then
+            echo "::error::Health check failed"
+            exit 1
+          fi
+          echo "✅ Health check passed"
+
+      - name: API smoke tests
+        run: |
+          # Test mines endpoint
+          curl -sf -H "Authorization: Bearer ${{ secrets.PROD_API_KEY }}" \
+            ${{ needs.deploy-green.outputs.green_url }}/mines?page=1&limit=1 | jq .
+
+          # Test convergence endpoint
+          curl -sf -H "Authorization: Bearer ${{ secrets.PROD_API_KEY }}" \
+            ${{ needs.deploy-green.outputs.green_url }}/convergence/scores?limit=1 | jq .
+
+          echo "✅ API smoke tests passed"
+
+      - name: Circuit breaker health
+        run: |
+          RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.METRICS_API_KEY }}" \
+            ${{ needs.deploy-green.outputs.green_url }}/health/metrics)
+
+          echo "$RESPONSE" | jq '.circuit_breakers'
+
+          OPEN_CIRCUITS=$(echo "$RESPONSE" | jq -r '.circuit_breakers | to_entries[] | select(.value.state == "open") | .key')
+          if [ -n "$OPEN_CIRCUITS" ]; then
+            echo "::warning::Open circuit breakers: $OPEN_CIRCUITS"
+          fi
+
+  shift-traffic:
+    name: Shift Traffic (${{ inputs.traffic_percentage }}%)
+    needs: smoke-test-green
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Route traffic to green slot
+        run: |
+          PERCENTAGE=${{ inputs.traffic_percentage }}
+          echo "Routing ${PERCENTAGE}% traffic to green slot..."
+
+          az webapp traffic-routing set \
+            --resource-group $RG \
+            --name app-ain-platform-msim-api-prod \
+            --distribution green=$PERCENTAGE \
+            --output none
+
+          echo "✅ ${PERCENTAGE}% traffic routed to green slot"
+
+      - name: Monitor for 5 minutes
+        run: |
+          echo "Monitoring for 5 minutes..."
+          for i in {1..30}; do
+            METRICS=$(curl -sf \
+              -H "Authorization: Bearer ${{ secrets.METRICS_API_KEY }}" \
+              https://api.ain-platform.com/health/metrics)
+
+            ERROR_RATE=$(echo "$METRICS" | jq -r '.error_rate // 0')
+            echo "  [$i/30] Error rate: $ERROR_RATE%"
+
+            if (( $(echo "$ERROR_RATE > 5" | bc -l) )); then
+              echo "::error::Error rate exceeded 5%"
+              exit 1
+            fi
+
+            sleep 10
+          done
+          echo "✅ Monitoring passed"
+
+  swap-slots:
+    name: Swap to Production
+    needs: shift-traffic
+    runs-on: ubuntu-latest
+    if: inputs.traffic_percentage == '100'
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Swap green to production
+        run: |
+          echo "Swapping green slot to production..."
+
+          az webapp deployment slot swap \
+            --resource-group $RG \
+            --name app-ain-platform-msim-api-prod \
+            --slot green \
+            --target-slot production \
+            --output none
+
+          echo "✅ Swapped to production"
+
+      - name: Verify production
+        run: |
+          sleep 30
+
+          RESPONSE=$(curl -sf https://api.ain-platform.com/health/ready)
+          STATUS=$(echo "$RESPONSE" | jq -r '.status')
+
+          if [ "$STATUS" != "ok" ]; then
+            echo "::error::Production health check failed"
+            exit 1
+          fi
+
+          echo "✅ Production verified"
+
+  tag-release:
+    name: Tag GitHub Release
+    needs: [swap-slots]
+    if: inputs.traffic_percentage == '100'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $VERSION \
+            --title "Release $VERSION" \
+            --notes "Production deployment $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --verify-tag
+
+          echo "✅ GitHub release created"
+
+  rollback:
+    name: Rollback (if failed)
+    needs: [deploy-green, smoke-test-green, shift-traffic]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Route all traffic back to production
+        run: |
+          echo "Rolling back - routing 100% traffic to production slot..."
+
+          az webapp traffic-routing clear \
+            --resource-group $RG \
+            --name app-ain-platform-msim-api-prod \
+            --output none
+
+          echo "✅ Rollback complete"
+
+      - name: Notify rollback
+        run: |
+          echo "::error::Deployment failed and was rolled back"
+          echo "::error::Version: $VERSION"
+          echo "::error::Check logs for details"

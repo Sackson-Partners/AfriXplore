@@ -1,6 +1,6 @@
 'use client';
 
-import { useIsAuthenticated } from '@azure/msal-react';
+import { useAuth } from '@/hooks/useAuth';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -25,7 +25,7 @@ async function fetchMines(page: number, search?: string): Promise<{ data: Mine[]
 }
 
 export default function MinesPage() {
-  const isAuthenticated = useIsAuthenticated();
+  const isAuthenticated = useAuth();
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [page] = useState(1);

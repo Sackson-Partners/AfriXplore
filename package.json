@@ -13,7 +13,7 @@
     "db:seed:msim": "tsx infrastructure/scripts/seed-msim.ts"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2",
+    "concurrently": "^10.0.3",
     "tsx": "^4.11.0",
     "typescript": "^5.4.5"
   }

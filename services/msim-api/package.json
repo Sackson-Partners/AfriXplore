@@ -6,7 +6,7 @@
   "main": "./dist/server.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -18,14 +18,15 @@
     "@ain/auth": "workspace:*",
     "@ain/config": "workspace:*",
     "@ain/database": "workspace:*",
+    "@ain/security": "workspace:*",
     "@ain/types": "workspace:*",
     "@ain/validation": "workspace:*",
     "@azure/ai-form-recognizer": "^5.0.0",
     "@azure/identity": "^4.3.0",
     "@azure/maps-search": "^1.0.0-beta.2",
     "@azure/openai": "^2.0.0",
-    "openai": "^4.47.2",
     "@azure/search-documents": "^12.1.0",
+    "@azure/service-bus": "^7.9.5",
     "@azure/storage-blob": "^12.24.0",
     "applicationinsights": "^3.3.1",
     "compression": "^1.7.4",
@@ -34,6 +35,7 @@
     "express-rate-limit": "^7.2.0",
     "helmet": "^7.1.0",
     "morgan": "^1.10.0",
+    "openai": "^4.47.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -44,10 +46,10 @@
     "@types/node": "^20.12.12",
     "@types/pg": "^8.11.6",
     "@types/supertest": "^7.2.0",
-    "@vitest/coverage-v8": "^1.6.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "supertest": "^7.2.2",
     "tsx": "^4.10.5",
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.10"
   }
 }

@@ -3,10 +3,75 @@ import { requireAuth, requireRole } from '@ain/auth';
 import { validate } from '@ain/validation';
 import { MineQuerySchema, CreateMineSchema, UpdateMineSchema, UUIDSchema } from '@ain/validation';
 import { MinesService } from '../services/mines.service.js';
+import { getPool } from '@ain/database';
 import { z } from 'zod';
 
 const router = Router();
 const service = new MinesService();
+
+/**
+ * GET /mines/map
+ * GeoJSON FeatureCollection of all mines with coordinates.
+ * Supports optional ?bounds=minLng,minLat,maxLng,maxLat filter.
+ */
+router.get('/map', requireAuth, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const pool = getPool();
+    let boundsClause = '';
+    const params: number[] = [];
+
+    const boundsStr = req.query.bounds as string | undefined;
+    if (boundsStr) {
+      const [minLng, minLat, maxLng, maxLat] = boundsStr.split(',').map(Number);
+      if ([minLng, minLat, maxLng, maxLat].every((n) => !isNaN(n))) {
+        boundsClause = `AND ST_Within(location::geometry, ST_MakeEnvelope($1,$2,$3,$4,4326))`;
+        params.push(minLng, minLat, maxLng, maxLat);
+      }
+    }
+
+    const result = await pool.query(
+      `SELECT
+         id,
+         name,
+         commodity,
+         country,
+         status,
+         dpi_score,
+         confidence_grade,
+         COALESCE(dpi_score, 0) AS dpi,
+         ST_X(location::geometry) AS lng,
+         ST_Y(location::geometry) AS lat
+       FROM historical_mines
+       WHERE location IS NOT NULL ${boundsClause}
+       LIMIT 5000`,
+      params
+    );
+
+    const geojson = {
+      type: 'FeatureCollection' as const,
+      features: result.rows.map((row) => ({
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [Number(row.lng), Number(row.lat)],
+        },
+        properties: {
+          id: row.id,
+          name: row.name,
+          commodity: row.commodity,
+          country: row.country,
+          status: row.status,
+          dpi: Number(row.dpi) || 0,
+          confidenceGrade: row.confidence_grade,
+        },
+      })),
+    };
+
+    res.json(geojson);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /mines
 router.get('/', requireAuth, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
