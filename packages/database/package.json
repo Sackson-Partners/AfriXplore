@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "pg": "^8.11.3"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@types/geojson": "^7946.0.14",
