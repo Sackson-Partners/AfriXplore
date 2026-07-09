@@ -88,7 +88,7 @@ jobs:
       needs_provisioning: ${{ steps.check.outputs.needs_provisioning }}
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -113,7 +113,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -142,7 +142,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -181,7 +181,7 @@ jobs:
           ref: ${{ inputs.version }}
 
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -215,7 +215,7 @@ jobs:
       green_revision: ${{ steps.deploy.outputs.green_revision }}
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -304,7 +304,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -353,7 +353,7 @@ jobs:
     if: inputs.traffic_percentage == '100'
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -433,7 +433,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
