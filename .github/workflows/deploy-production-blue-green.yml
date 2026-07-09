@@ -33,7 +33,7 @@ jobs:
     name: Validate Deployment
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.version }}
 
@@ -110,7 +110,7 @@ jobs:
     if: needs.check-infrastructure.outputs.needs_provisioning == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Azure login
         uses: azure/login@v2
@@ -176,7 +176,7 @@ jobs:
     outputs:
       image_tag: ${{ env.VERSION }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.version }}
 
@@ -413,7 +413,7 @@ jobs:
     if: inputs.traffic_percentage == '100'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Create GitHub Release
         env:
