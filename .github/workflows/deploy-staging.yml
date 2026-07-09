@@ -18,7 +18,7 @@ jobs:
     name: Pre-Deploy Safety Checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Block deployment if DEV_BYPASS_AUTH is enabled
         run: |
@@ -35,7 +35,7 @@ jobs:
     outputs:
       sha_tag: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
