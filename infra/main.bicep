@@ -334,7 +334,7 @@ resource openAI 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
   }
 }
 
-// Deploy GPT-4 model
+// Deploy GPT-4 model (using turbo for better availability)
 resource gpt4Deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-10-01-preview' = {
   parent: openAI
   name: 'gpt-4-msim'
@@ -346,7 +346,7 @@ resource gpt4Deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-1
     model: {
       format: 'OpenAI'
       name: 'gpt-4'
-      version: '0613'
+      version: '1106-Preview'
     }
   }
 }

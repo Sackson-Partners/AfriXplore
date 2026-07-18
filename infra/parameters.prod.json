@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "prod"
+    },
+    "location": {
+      "value": "southafricanorth"
+    },
+    "postgresAdminPassword": {
+      "value": "AIN-Prod-PG-2026-Secure!"
+    },
+    "entraExternalTenantId": {
+      "value": "89190235-0737-4836-b894-5c9d8afb00c3"
+    },
+    "entraClientId": {
+      "value": "placeholder-update-later"
+    },
+    "mapboxToken": {
+      "value": ""
+    }
+  }
+}
