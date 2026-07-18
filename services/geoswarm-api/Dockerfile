@@ -10,6 +10,8 @@ COPY packages/validation/package.json ./packages/validation/
 COPY packages/database/package.json ./packages/database/
 COPY packages/auth/package.json ./packages/auth/
 COPY packages/config/package.json ./packages/config/
+COPY packages/cache/package.json ./packages/cache/
+COPY packages/security/package.json ./packages/security/
 COPY services/geoswarm-api/package.json ./services/geoswarm-api/
 RUN pnpm install --frozen-lockfile --prod=false
 
