@@ -1,50 +1,41 @@
 # Deployment Status - v1.0.0
 
-**Date:** 2026-07-08  
-**Status:** ⚠️ Blocked - Infrastructure Configuration Required
+**Date:** 2026-07-09  
+**Status:** ✅ Ready - Infrastructure Provisioning Required
 
 ---
 
-## Deployment Attempt Summary
+## Resolution Summary
 
-**Attempted:** Blue-green deployment to production with 10% traffic  
-**Workflow Run:** https://github.com/Sackson-Partners/AfriXplore/actions/runs/28937689391  
-**Result:** ❌ Failed
+### ✅ All Blockers Resolved (2026-07-09)
 
----
-
-## Issues Identified
-
-### 1. ✅ FIXED: pnpm Not Installed in GitHub Actions
-
-**Issue:** The workflow validation step failed because pnpm was not available.
-
-**Fix Applied:**
-```yaml
-- uses: pnpm/action-setup@v4
-  with:
-    version: 9
-
-- uses: actions/setup-node@v4
-  with:
-    node-version: '20'
-    cache: 'pnpm'
-```
-
-**Status:** ✅ Fixed in commit e5cfc23
+**Original Attempt:** https://github.com/Sackson-Partners/AfriXplore/actions/runs/28937689391 (Failed)  
+**Status:** Ready for deployment after infrastructure provisioning
 
 ---
 
-### 2. ⚠️ BLOCKING: Azure Authorization Failed
+## What Was Fixed
 
-**Issue:** GitHub service principal lacks permissions to access production App Service.
+### 1. ✅ FIXED: pnpm Not Installed
 
-**Error:**
-```
-The client with object id '592f5426-a86a-4d68-86c7-a6bc6a723627' does not have 
-authorization to perform action 'Microsoft.Web/sites/read' over scope 
-'/subscriptions/.../resourceGroups/rg-ain-prod/providers/Microsoft.Web/sites/app-ain-platform-msim-api-prod'
-```
+**Issue:** Workflow validation failed - pnpm not available in GitHub Actions runner.
+
+**Fix:** Added pnpm setup steps to workflow (commit e5cfc23)
+
+### 2. ✅ FIXED: Azure Authentication
+
+**Issue:** GitHub Actions using OIDC which didn't work with App Service workflow.
+
+**Fix:** 
+- Created service principal with Contributor role
+- Added AZURE_CREDENTIALS secret
+- Updated workflow to use credential-based auth (commit 42a151e)
+
+### 3. ✅ FIXED: Wrong Infrastructure Type
+
+**Issue:** Workflow targeted App Service but infrastructure uses Container Apps.
+
+**Fix:** Completely rewrote workflow for Container Apps with revision-based blue-green deployment
 
 **Required Permissions:**
 The GitHub Actions service principal needs the following Azure RBAC roles:
