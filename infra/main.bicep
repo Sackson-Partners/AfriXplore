@@ -321,9 +321,10 @@ resource appInsightsConnStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-
 }
 
 // ── Azure OpenAI ──────────────────────────────────────────────────────────────
+// Note: Deploying to South Africa North region (GPT-4 may have limited availability)
 resource openAI 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
   name: 'oai-ain-${environment}'
-  location: 'eastus' // GPT-4 availability
+  location: location // Use same location as resource group
   sku: {
     name: 'S0'
   }
@@ -334,19 +335,19 @@ resource openAI 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
   }
 }
 
-// Deploy GPT-4 model (using turbo for better availability)
-resource gpt4Deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-10-01-preview' = {
+// Deploy GPT-3.5 Turbo (more widely available than GPT-4)
+resource gpt35Deployment 'Microsoft.CognitiveServices/accounts/deployments@2023-10-01-preview' = {
   parent: openAI
-  name: 'gpt-4-msim'
+  name: 'gpt-35-turbo-msim'
   sku: {
     name: 'Standard'
-    capacity: 10
+    capacity: 120
   }
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-4'
-      version: '1106-Preview'
+      name: 'gpt-35-turbo'
+      version: '0125'
     }
   }
 }
@@ -357,7 +358,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   name: 'text-embedding-msim'
   sku: {
     name: 'Standard'
-    capacity: 10
+    capacity: 120
   }
   properties: {
     model: {
@@ -366,7 +367,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
       version: '2'
     }
   }
-  dependsOn: [gpt4Deployment] // Sequential deployment required
+  dependsOn: [gpt35Deployment] // Sequential deployment required
 }
 
 // Store OpenAI endpoint and key in Key Vault
