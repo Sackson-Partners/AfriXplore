@@ -1,0 +1,205 @@
+name: Deploy Frontends to Vercel (Production)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy-platform-web:
+    name: Deploy Platform Web
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      - name: Pull Vercel Environment
+        working-directory: apps/platform-web
+        run: |
+          vercel pull --yes \
+            --environment=${{ inputs.environment }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --scope=${{ secrets.VERCEL_ORG_ID }}
+
+      - name: Build Project
+        working-directory: apps/platform-web
+        env:
+          NEXT_PUBLIC_MSIM_API_URL: ${{ inputs.environment == 'production' && 'https://ca-msim-api-prod.wittywater-XXXXXXXX.southafricanorth.azurecontainerapps.io' || 'https://ca-msim-api-dev.wittywater-7f8926f4.southafricanorth.azurecontainerapps.io' }}
+        run: |
+          vercel build \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        working-directory: apps/platform-web
+        run: |
+          vercel deploy \
+            --prebuilt \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            > deployment-url.txt
+
+      - name: Get Deployment URL
+        id: deployment
+        working-directory: apps/platform-web
+        run: |
+          URL=$(cat deployment-url.txt)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $URL"
+
+      - name: Smoke Test
+        run: |
+          sleep 10
+          curl -sf ${{ steps.deployment.outputs.url }} > /dev/null || exit 1
+          echo "✅ Smoke test passed"
+
+  deploy-admin-web:
+    name: Deploy Admin Web
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      - name: Pull Vercel Environment
+        working-directory: apps/admin-web
+        run: |
+          vercel pull --yes \
+            --environment=${{ inputs.environment }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --scope=${{ secrets.VERCEL_ORG_ID }}
+
+      - name: Build Project
+        working-directory: apps/admin-web
+        env:
+          NEXT_PUBLIC_MSIM_API_URL: ${{ inputs.environment == 'production' && 'https://ca-msim-api-prod.wittywater-XXXXXXXX.southafricanorth.azurecontainerapps.io' || 'https://ca-msim-api-dev.wittywater-7f8926f4.southafricanorth.azurecontainerapps.io' }}
+        run: |
+          vercel build \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        working-directory: apps/admin-web
+        run: |
+          vercel deploy \
+            --prebuilt \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            > deployment-url.txt
+
+      - name: Get Deployment URL
+        id: deployment
+        working-directory: apps/admin-web
+        run: |
+          URL=$(cat deployment-url.txt)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $URL"
+
+  deploy-geoswarm-web:
+    name: Deploy GeoSwarm Web
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      - name: Pull Vercel Environment
+        working-directory: apps/geoswarm-web
+        run: |
+          vercel pull --yes \
+            --environment=${{ inputs.environment }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --scope=${{ secrets.VERCEL_ORG_ID }}
+
+      - name: Build Project
+        working-directory: apps/geoswarm-web
+        env:
+          NEXT_PUBLIC_GEOSWARM_API_URL: ${{ inputs.environment == 'production' && 'https://ca-geoswarm-api-prod.wittywater-XXXXXXXX.southafricanorth.azurecontainerapps.io' || 'https://ca-geoswarm-api-dev.wittywater-7f8926f4.southafricanorth.azurecontainerapps.io' }}
+          NEXT_PUBLIC_MSIM_API_URL: ${{ inputs.environment == 'production' && 'https://ca-msim-api-prod.wittywater-XXXXXXXX.southafricanorth.azurecontainerapps.io' || 'https://ca-msim-api-dev.wittywater-7f8926f4.southafricanorth.azurecontainerapps.io' }}
+        run: |
+          vercel build \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        working-directory: apps/geoswarm-web
+        run: |
+          vercel deploy \
+            --prebuilt \
+            ${{ inputs.environment == 'production' && '--prod' || '' }} \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            > deployment-url.txt
+
+      - name: Get Deployment URL
+        id: deployment
+        working-directory: apps/geoswarm-web
+        run: |
+          URL=$(cat deployment-url.txt)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $URL"
+
+  summary:
+    name: Deployment Summary
+    needs: [deploy-platform-web, deploy-admin-web, deploy-geoswarm-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ All Frontends Deployed to Vercel"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Platform Web: ✅ Deployed"
+          echo "Admin Web: ✅ Deployed"
+          echo "GeoSwarm Web: ✅ Deployed"
+          echo ""
+          echo "View deployments: https://vercel.com/sacksons-projects"
