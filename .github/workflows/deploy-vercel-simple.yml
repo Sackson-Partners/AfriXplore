@@ -1,0 +1,51 @@
+name: Deploy to Vercel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/**'
+      - '.github/workflows/deploy-vercel-simple.yml'
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+jobs:
+  deploy:
+    name: Deploy All Apps to Vercel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy Platform Web
+        working-directory: apps/platform-web
+        run: |
+          vercel --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy Admin Web
+        working-directory: apps/admin-web
+        run: |
+          vercel --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy GeoSwarm Web
+        working-directory: apps/geoswarm-web
+        run: |
+          vercel --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
