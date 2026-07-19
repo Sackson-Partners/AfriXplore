@@ -3,7 +3,7 @@
  * Provides caching capabilities with TTL support
  */
 
-import Redis, { RedisOptions } from 'ioredis';
+import { Redis, type RedisOptions } from 'ioredis';
 
 export interface CacheConfig {
   host?: string;
@@ -63,7 +63,7 @@ export function initializeRedis(config?: CacheConfig): Redis {
     console.log('[Redis] Ready');
   });
 
-  redisClient.on('error', (error) => {
+  redisClient.on('error', (error: Error) => {
     console.error('[Redis] Error:', error);
   });
 
