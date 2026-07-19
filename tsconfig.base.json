@@ -13,7 +13,6 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "dist",
-    "rootDir": "src",
     "paths": {
       "@ain/types": ["./packages/types/src/index.ts"],
       "@ain/validation": ["./packages/validation/src/index.ts"],

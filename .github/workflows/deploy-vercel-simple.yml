@@ -35,11 +35,15 @@ jobs:
 
       - name: Deploy Platform Web
         working-directory: apps/platform-web
+        env:
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_PLATFORM_WEB_ID }}
         run: |
           vercel --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy Admin Web
         working-directory: apps/admin-web
+        env:
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ADMIN_WEB_ID }}
         run: |
           vercel --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
 
