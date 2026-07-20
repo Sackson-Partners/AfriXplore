@@ -63,7 +63,7 @@ export function createCSRFProtection(options: CSRFOptions = {}): RequestHandler 
   return csrf({
     cookie,
     ignoreMethods,
-    value: options.value,
+    value: options.value as ((req: any) => string) | undefined,
   });
 }
 

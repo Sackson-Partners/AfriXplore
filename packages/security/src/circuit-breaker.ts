@@ -4,9 +4,8 @@
  */
 
 import CircuitBreaker from 'opossum';
-import type { CircuitBreakerOptions as OpossumOptions } from 'opossum';
 
-export interface CircuitBreakerOptions extends Partial<OpossumOptions> {
+export interface CircuitBreakerOptions {
   /**
    * Name of the circuit breaker (for logging/monitoring)
    */
@@ -68,7 +67,7 @@ export interface CircuitBreakerOptions extends Partial<OpossumOptions> {
 export function createCircuitBreaker<T extends (...args: any[]) => Promise<any>>(
   action: T,
   options: CircuitBreakerOptions
-): CircuitBreaker<Parameters<T>, ReturnType<T>> {
+): CircuitBreaker<any[], any> {
   const {
     name,
     errorThresholdPercentage = 0.5,
@@ -104,7 +103,7 @@ export function createCircuitBreaker<T extends (...args: any[]) => Promise<any>>
     console.warn(`[CircuitBreaker:${name}] Request timeout after ${timeout}ms`);
   });
 
-  breaker.on('failure', (error) => {
+  breaker.on('failure', (error: Error) => {
     console.error(`[CircuitBreaker:${name}] Request failed:`, error.message);
   });
 
