@@ -92,7 +92,7 @@ export function sentryTracingHandler(): any {
  */
 export function sentryErrorHandler(): any {
   return Sentry.Handlers.errorHandler({
-    shouldHandleError(error) {
+    shouldHandleError(error: Error) {
       // Capture 4xx and 5xx errors
       return true;
     },

@@ -74,7 +74,7 @@ export function initializeOpenTelemetry(config: OpenTelemetryConfig): void {
         },
         // Configure HTTP instrumentation
         '@opentelemetry/instrumentation-http': {
-          ignoreIncomingRequestHook: (request) => {
+          ignoreIncomingRequestHook: (request: any) => {
             // Ignore health check requests
             return request.url?.includes('/health') || false;
           },

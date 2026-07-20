@@ -13,6 +13,7 @@ COPY packages/auth/package.json ./packages/auth/
 COPY packages/config/package.json ./packages/config/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/security/package.json ./packages/security/
+COPY packages/monitoring/package.json ./packages/monitoring/
 COPY services/msim-api/package.json ./services/msim-api/
 RUN pnpm install --frozen-lockfile --prod=false
 
