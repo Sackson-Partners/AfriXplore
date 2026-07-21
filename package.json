@@ -2,7 +2,7 @@
   "name": "ain-platform",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.4.0",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "concurrently \"pnpm --filter @ain/msim-api dev\" \"pnpm --filter @ain/admin-web dev\" \"pnpm --filter @ain/platform-web dev\"",
     "build": "pnpm --filter './packages/*' build && pnpm --filter './services/*' build && pnpm --filter './apps/*' build",
